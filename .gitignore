@@ -1,8 +1,11 @@
 .codex-security-venv/
 .pytest_cache/
+**/.pytest_cache/
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.egg-info/
+**/*.egg-info/
 *.pem
 *.key
 *.p12
