@@ -1,0 +1,1 @@
+"""Odoo MCP server package."""

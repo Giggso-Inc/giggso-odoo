@@ -1,0 +1,11 @@
+services:
+  odoo-mcp:
+    build:
+      context: ../odoo_mcp_server
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - ./audit:/var/log/odoo-mcp

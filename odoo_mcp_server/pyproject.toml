@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odoo-mcp-server"
+version = "0.1.0"
+description = "Secure MCP server for Odoo CRM and Projects"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mcp>=1.23.0",
+    "PyJWT[crypto]>=2.10.1",
+]
+
+[project.scripts]
+odoo-mcp-server = "odoo_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

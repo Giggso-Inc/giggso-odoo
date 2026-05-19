@@ -1,0 +1,10 @@
+{
+  "note": "Obsolete example. V1 now uses signed SSO identity tokens, not per-user Odoo API keys.",
+  "token_claims_example": {
+    "sub": "idp-user-id",
+    "email": "alice@example.com",
+    "iss": "https://idp.example.com",
+    "aud": "odoo-mcp",
+    "exp": 1893456000
+  }
+}
