@@ -11,15 +11,25 @@ git clone https://github.com/giggsoinc/giggso-odoo.git
 cd giggso-odoo
 ```
 
-2. Install the Odoo add-on:
+2. Run the guided installer:
+
+```bash
+bash scripts/install_odoo_mcp.sh
+```
+
+The installer copies the add-on, writes `deploy/.env`, restarts Odoo when possible, and starts the Docker Compose MCP service when Docker is available.
+
+Manual install path:
+
+1. Install the Odoo add-on:
 
 ```bash
 cp -R odoo_addons/odoo_mcp_connector /opt/odoo/custom_addons/
 ```
 
-3. Restart Odoo and install **Odoo MCP Connector** from Apps.
+2. Restart Odoo and install **Odoo MCP Connector** from Apps.
 
-4. Create a long random connector secret and set it in Odoo:
+3. Create a long random connector secret and set it in Odoo:
 
 ```text
 Settings -> Technical -> Parameters -> System Parameters
@@ -27,7 +37,7 @@ Settings -> Technical -> Parameters -> System Parameters
 odoo_mcp_connector.signing_secret = <long-random-secret>
 ```
 
-5. Configure the MCP server `.env` with the same connector secret:
+4. Configure the MCP server `.env` with the same connector secret:
 
 ```text
 ODOO_URL=https://odoo.example.com
@@ -41,23 +51,23 @@ ODOO_MCP_PORT=8088
 ODOO_MCP_PUBLIC_URL=https://mcp.example.com
 ```
 
-6. Start the MCP service:
+5. Start the MCP service:
 
 ```bash
 cd deploy
 docker compose up -d --build
 ```
 
-7. Put the service behind HTTPS. Do not expose plain HTTP directly to the internet.
+6. Put the service behind HTTPS. Do not expose plain HTTP directly to the internet.
 
-8. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
+7. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
 
 ```text
 res.users.login
 res.users.email
 ```
 
-9. Validate with a low-risk user first:
+8. Validate with a low-risk user first:
 
 ```text
 odoo_health_check

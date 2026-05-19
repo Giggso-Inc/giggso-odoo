@@ -104,6 +104,12 @@ git clone https://github.com/giggsoinc/giggso-odoo.git
 cd giggso-odoo
 ```
 
+For a guided server install, run:
+
+```bash
+bash scripts/install_odoo_mcp.sh
+```
+
 ### 2. Install the Odoo add-on
 
 Copy the add-on into your Odoo custom addons path:
