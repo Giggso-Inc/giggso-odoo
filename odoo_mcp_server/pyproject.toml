@@ -13,6 +13,11 @@ dependencies = [
     "PyJWT[crypto]>=2.10.1",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
 odoo-mcp-server = "odoo_mcp.server:main"
 

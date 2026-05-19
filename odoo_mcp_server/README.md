@@ -12,7 +12,7 @@ This server exposes a controlled set of MCP tools for:
 - Activities.
 - Health and capability checks.
 
-It does not connect directly to PostgreSQL. All operations go through Odoo XML-RPC so Odoo ACLs and record rules remain the source of truth.
+It does not connect directly to PostgreSQL. All operations go through the custom Odoo MCP connector add-on, which maps the signed identity to an Odoo user and uses Odoo ORM with `with_user(real_user)` so ACLs and record rules remain the source of truth.
 
 ## Development Run
 
