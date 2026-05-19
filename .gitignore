@@ -20,4 +20,5 @@ plugins/raven-codex/
 deploy/.env
 deploy/secrets/
 deploy/audit/
+deploy/certs/
 plugins/

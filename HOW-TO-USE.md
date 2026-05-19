@@ -76,9 +76,11 @@ ODOO_MCP_IDENTITY_AUDIENCE=<google-oauth-client-id>
 ODOO_MCP_IDENTITY_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs
 ODOO_MCP_TRANSPORT=streamable-http
 ODOO_MCP_HOST=0.0.0.0
-ODOO_MCP_PORT=8088
+ODOO_MCP_PORT=8443
 ODOO_MCP_BIND=0.0.0.0
-ODOO_MCP_PUBLIC_URL=http://64.181.194.210:8088
+ODOO_MCP_PUBLIC_URL=https://64.181.194.210
+ODOO_MCP_TLS_CERT_FILE=/run/odoo-mcp/certs/tls.crt
+ODOO_MCP_TLS_KEY_FILE=/run/odoo-mcp/certs/tls.key
 ```
 
 5. Start the MCP service:
@@ -88,7 +90,7 @@ cd deploy
 docker compose up -d --build
 ```
 
-6. For direct IP access, open TCP `8088` in the cloud security list and host firewall.
+6. For direct IP access, open TCP `443` in the cloud security list and host firewall.
 
 7. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
 
@@ -111,7 +113,7 @@ crm_search_opportunities
 Configure your MCP-capable client to connect to the deployed MCP server URL, for example:
 
 ```text
-http://64.181.194.210:8088
+https://64.181.194.210
 ```
 
 The client or gateway must attach a valid IdP-issued token:
@@ -220,20 +222,20 @@ git pull
 cd deploy
 docker compose up -d --build
 docker ps | grep odoo-mcp
-curl -I http://127.0.0.1:8088
-curl -I http://64.181.194.210:8088
+curl -k -I https://127.0.0.1
+curl -k -I https://64.181.194.210
 ```
 
 Expected Docker port mapping:
 
 ```text
-0.0.0.0:8088->8088/tcp
+0.0.0.0:443->8443/tcp
 ```
 
-If local curl works but public curl fails, open TCP `8088`:
+If local curl works but public curl fails, open TCP `443`:
 
 ```bash
-sudo firewall-cmd --add-port=8088/tcp --permanent
+sudo firewall-cmd --add-port=443/tcp --permanent
 sudo firewall-cmd --reload
 ```
 
@@ -242,7 +244,7 @@ For OCI, also add an ingress rule:
 ```text
 Source CIDR: your-client-ip/32
 Protocol: TCP
-Destination port: 8088
+Destination port: 443
 ```
 
 ## Troubleshooting

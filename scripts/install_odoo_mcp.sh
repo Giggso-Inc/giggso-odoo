@@ -9,6 +9,8 @@ ODOO_SERVICE="${ODOO_SERVICE:-odoo}"
 ODOO_URL="${ODOO_URL:-}"
 MCP_BIND="${MCP_BIND:-0.0.0.0}"
 MCP_PUBLIC_URL="${MCP_PUBLIC_URL:-}"
+MCP_TLS_CERT_FILE="${MCP_TLS_CERT_FILE:-/run/odoo-mcp/certs/tls.crt}"
+MCP_TLS_KEY_FILE="${MCP_TLS_KEY_FILE:-/run/odoo-mcp/certs/tls.key}"
 IDENTITY_ISSUER="${IDENTITY_ISSUER:-}"
 IDENTITY_AUDIENCE="${IDENTITY_AUDIENCE:-odoo-mcp}"
 IDENTITY_JWKS_URL="${IDENTITY_JWKS_URL:-}"
@@ -37,7 +39,7 @@ Useful overrides:
   ODOO_CONFIG=/etc/odoo/odoo.conf
   ODOO_SERVICE=odoo
   MCP_BIND=0.0.0.0
-  MCP_PUBLIC_URL=http://64.181.194.210:8088
+  MCP_PUBLIC_URL=https://64.181.194.210
   IDENTITY_AUDIENCE=odoo-mcp
   CONNECTOR_SECRET=<existing-secret>
   SKIP_GIT_CLONE=1
@@ -111,10 +113,43 @@ detect_public_url() {
   local public_ip
   public_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
   if [ -n "$public_ip" ]; then
-    MCP_PUBLIC_URL="http://${public_ip}:8088"
+    MCP_PUBLIC_URL="https://${public_ip}"
   else
-    MCP_PUBLIC_URL="http://127.0.0.1:8088"
+    MCP_PUBLIC_URL="https://127.0.0.1"
   fi
+}
+
+generate_tls_cert() {
+  local cert_dir="$REPO_DIR/deploy/certs"
+  local cert_file="$cert_dir/tls.crt"
+  local key_file="$cert_dir/tls.key"
+  if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+    return
+  fi
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "OpenSSL is required to generate the direct HTTPS certificate." >&2
+    exit 1
+  fi
+  mkdir -p "$cert_dir"
+  chmod 700 "$cert_dir"
+  local host_name
+  host_name="${MCP_PUBLIC_URL#https://}"
+  host_name="${host_name#http://}"
+  host_name="${host_name%%/*}"
+  local san
+  if [[ "$host_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    san="IP:${host_name}"
+  else
+    san="DNS:${host_name}"
+  fi
+  openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "$key_file" \
+    -out "$cert_file" \
+    -days 365 \
+    -subj "/CN=${host_name}" \
+    -addext "subjectAltName=${san}" >/dev/null 2>&1
+  chmod 600 "$key_file"
+  chmod 644 "$cert_file"
 }
 
 clone_or_update_repo() {
@@ -183,9 +218,11 @@ ODOO_MCP_IDENTITY_JWKS_URL=$IDENTITY_JWKS_URL
 ODOO_MCP_AUDIT_LOG=/var/log/odoo-mcp/audit.jsonl
 ODOO_MCP_TRANSPORT=streamable-http
 ODOO_MCP_HOST=0.0.0.0
-ODOO_MCP_PORT=8088
+ODOO_MCP_PORT=8443
 ODOO_MCP_BIND=$MCP_BIND
 ODOO_MCP_PUBLIC_URL=$MCP_PUBLIC_URL
+ODOO_MCP_TLS_CERT_FILE=$MCP_TLS_CERT_FILE
+ODOO_MCP_TLS_KEY_FILE=$MCP_TLS_KEY_FILE
 EOF
 }
 
@@ -220,8 +257,12 @@ MCP service URL:
   $MCP_PUBLIC_URL
 
 Direct exposure:
-  Docker is configured to bind MCP on ${MCP_BIND}:8088.
-  If external curl still fails, open TCP 8088 in the server firewall and cloud security list.
+  Docker is configured to bind HTTPS MCP on ${MCP_BIND}:443.
+  If external curl still fails, open TCP 443 in the server firewall and cloud security list.
+
+TLS:
+  A self-signed certificate was generated in deploy/certs.
+  Test it with: curl -k $MCP_PUBLIC_URL
 
 Important:
   Keep deploy/.env private. It contains the connector signing secret.
@@ -247,6 +288,7 @@ main() {
   copy_addon
   ensure_addons_path
   restart_odoo
+  generate_tls_cert
   write_env
   start_docker
   print_next_steps

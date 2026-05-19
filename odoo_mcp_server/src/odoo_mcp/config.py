@@ -18,6 +18,8 @@ class Settings:
     identity_issuer: str | None = None
     identity_audience: str | None = None
     identity_jwks_url: str | None = None
+    tls_cert_file: Path | None = None
+    tls_key_file: Path | None = None
 
 
 def load_settings() -> Settings:
@@ -34,6 +36,8 @@ def load_settings() -> Settings:
         identity_issuer=os.getenv("ODOO_MCP_IDENTITY_ISSUER"),
         identity_audience=os.getenv("ODOO_MCP_IDENTITY_AUDIENCE"),
         identity_jwks_url=os.getenv("ODOO_MCP_IDENTITY_JWKS_URL"),
+        tls_cert_file=optional_path(os.getenv("ODOO_MCP_TLS_CERT_FILE")),
+        tls_key_file=optional_path(os.getenv("ODOO_MCP_TLS_KEY_FILE")),
     )
 
 
@@ -52,3 +56,9 @@ def parse_port(value: str) -> int:
     if port < 1 or port > 65535:
         raise RuntimeError(f"ODOO_MCP_PORT must be between 1 and 65535: {value}")
     return port
+
+
+def optional_path(value: str | None) -> Path | None:
+    if not value:
+        return None
+    return Path(value)
