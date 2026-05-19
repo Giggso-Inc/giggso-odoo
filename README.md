@@ -157,6 +157,19 @@ Keep user groups, CRM access, Project access, companies, and record rules config
 
 ### 5. Configure the MCP server
 
+For Google Cloud / Google Workspace, use:
+
+```text
+ODOO_MCP_IDENTITY_ISSUER=https://accounts.google.com
+ODOO_MCP_IDENTITY_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs
+```
+
+The audience is your Google OAuth Client ID from:
+
+```text
+Google Cloud Console -> APIs & Services -> Credentials -> OAuth 2.0 Client IDs
+```
+
 Create a private `.env` from `deploy/.env.example`:
 
 ```text

@@ -52,9 +52,15 @@ Authorization: Bearer <signed-identity-token>
 Configure the MCP server with the IdP issuer, audience, and JWKS URL:
 
 ```text
-ODOO_MCP_IDENTITY_ISSUER=https://idp.example.com
-ODOO_MCP_IDENTITY_AUDIENCE=odoo-mcp
-ODOO_MCP_IDENTITY_JWKS_URL=https://idp.example.com/.well-known/jwks.json
+ODOO_MCP_IDENTITY_ISSUER=https://accounts.google.com
+ODOO_MCP_IDENTITY_AUDIENCE=<google-oauth-client-id>
+ODOO_MCP_IDENTITY_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs
+```
+
+For Google Cloud / Google Workspace, find the audience value here:
+
+```text
+Google Cloud Console -> APIs & Services -> Credentials -> OAuth 2.0 Client IDs -> Client ID
 ```
 
 ## 4. Start Service

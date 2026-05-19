@@ -43,6 +43,37 @@ Useful overrides:
 USAGE
 }
 
+select_identity_defaults() {
+  if [ -n "$IDENTITY_ISSUER" ] || [ -n "$IDENTITY_JWKS_URL" ]; then
+    return
+  fi
+  echo "Identity provider:"
+  echo "  1) Google Cloud / Google Workspace"
+  echo "  2) Microsoft Entra ID"
+  echo "  3) Okta"
+  echo "  4) Custom OIDC"
+  read -r -p "Select [1-4, default 1]: " provider
+  provider="${provider:-1}"
+  case "$provider" in
+    1)
+      IDENTITY_ISSUER="https://accounts.google.com"
+      IDENTITY_JWKS_URL="https://www.googleapis.com/oauth2/v3/certs"
+      ;;
+    2)
+      read -r -p "Microsoft tenant ID: " tenant_id
+      IDENTITY_ISSUER="https://login.microsoftonline.com/${tenant_id}/v2.0"
+      IDENTITY_JWKS_URL="https://login.microsoftonline.com/${tenant_id}/discovery/v2.0/keys"
+      ;;
+    3)
+      read -r -p "Okta domain, e.g. https://yourcompany.okta.com: " okta_domain
+      IDENTITY_ISSUER="${okta_domain%/}/oauth2/default"
+      IDENTITY_JWKS_URL="${okta_domain%/}/oauth2/default/v1/keys"
+      ;;
+    *)
+      ;;
+  esac
+}
+
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
@@ -183,8 +214,10 @@ main() {
   fi
 
   prompt_if_empty ODOO_URL "Odoo URL, e.g. https://odoo.example.com"
+  select_identity_defaults
   prompt_if_empty IDENTITY_ISSUER "OIDC issuer URL"
   prompt_if_empty IDENTITY_JWKS_URL "OIDC JWKS URL"
+  prompt_if_empty IDENTITY_AUDIENCE "OIDC audience / OAuth Client ID"
   prompt_if_empty MCP_PUBLIC_URL "Public MCP URL, e.g. https://mcp.example.com"
   generate_secret
 

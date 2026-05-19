@@ -19,6 +19,35 @@ bash scripts/install_odoo_mcp.sh
 
 The installer copies the add-on, writes `deploy/.env`, restarts Odoo when possible, and starts the Docker Compose MCP service when Docker is available.
 
+For Google Cloud / Google Workspace, choose option `1` when the installer asks for the identity provider. The installer fills:
+
+```text
+OIDC issuer URL: https://accounts.google.com
+OIDC JWKS URL:   https://www.googleapis.com/oauth2/v3/certs
+```
+
+When it asks for `OIDC audience / OAuth Client ID`, use the Google OAuth client ID from:
+
+```text
+Google Cloud Console
+-> APIs & Services
+-> Credentials
+-> OAuth 2.0 Client IDs
+-> Client ID
+```
+
+If you do not have an OAuth client yet, create one in Google Cloud Console:
+
+```text
+APIs & Services -> Credentials -> Create Credentials -> OAuth client ID
+```
+
+Use that generated **Client ID** as:
+
+```text
+ODOO_MCP_IDENTITY_AUDIENCE=<google-oauth-client-id>
+```
+
 Manual install path:
 
 1. Install the Odoo add-on:
@@ -42,9 +71,9 @@ odoo_mcp_connector.signing_secret = <long-random-secret>
 ```text
 ODOO_URL=https://odoo.example.com
 ODOO_MCP_CONNECTOR_SECRET=<long-random-secret>
-ODOO_MCP_IDENTITY_ISSUER=https://idp.example.com
-ODOO_MCP_IDENTITY_AUDIENCE=odoo-mcp
-ODOO_MCP_IDENTITY_JWKS_URL=https://idp.example.com/.well-known/jwks.json
+ODOO_MCP_IDENTITY_ISSUER=https://accounts.google.com
+ODOO_MCP_IDENTITY_AUDIENCE=<google-oauth-client-id>
+ODOO_MCP_IDENTITY_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs
 ODOO_MCP_TRANSPORT=streamable-http
 ODOO_MCP_HOST=0.0.0.0
 ODOO_MCP_PORT=8088
@@ -96,6 +125,14 @@ The token is verified by the MCP server using:
 ODOO_MCP_IDENTITY_ISSUER
 ODOO_MCP_IDENTITY_AUDIENCE
 ODOO_MCP_IDENTITY_JWKS_URL
+```
+
+For Google Cloud / Google Workspace:
+
+```text
+ODOO_MCP_IDENTITY_ISSUER=https://accounts.google.com
+ODOO_MCP_IDENTITY_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs
+ODOO_MCP_IDENTITY_AUDIENCE=<OAuth Client ID from Google Cloud Console>
 ```
 
 ## Example User Prompts
