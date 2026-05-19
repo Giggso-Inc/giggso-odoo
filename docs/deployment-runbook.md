@@ -70,7 +70,13 @@ cd deploy
 docker compose up -d --build
 ```
 
-The default compose file binds to `127.0.0.1:8088`. Put a reverse proxy or VPN in front of it if remote access is required.
+The default compose file publishes MCP on TCP `8088`:
+
+```text
+0.0.0.0:8088 -> 8088/tcp
+```
+
+For OCI, add a security-list or NSG ingress rule for TCP `8088`, preferably from your client IP only.
 
 ## 5. Validate
 

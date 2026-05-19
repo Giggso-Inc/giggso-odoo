@@ -182,7 +182,8 @@ ODOO_MCP_AUDIT_LOG=/var/log/odoo-mcp/audit.jsonl
 ODOO_MCP_TRANSPORT=streamable-http
 ODOO_MCP_HOST=0.0.0.0
 ODOO_MCP_PORT=8088
-ODOO_MCP_PUBLIC_URL=https://mcp.example.com
+ODOO_MCP_BIND=0.0.0.0
+ODOO_MCP_PUBLIC_URL=http://64.181.194.210:8088
 ```
 
 Do not commit `.env`.
@@ -194,7 +195,13 @@ cd deploy
 docker compose up -d --build
 ```
 
-The sample Compose file binds the service to `127.0.0.1:8088`. Put it behind HTTPS through Nginx, Caddy, Cloudflare Tunnel, Tailscale, or another controlled access layer.
+The sample Compose file publishes MCP directly on TCP `8088` by default:
+
+```text
+0.0.0.0:8088 -> 8088/tcp
+```
+
+For production, prefer HTTPS or a private network. For direct testing, open TCP `8088` only to trusted source IPs in your cloud firewall/security list.
 
 ## Identity Provider Requirements
 

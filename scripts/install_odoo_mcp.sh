@@ -7,7 +7,8 @@ ODOO_ADDONS_DIR="${ODOO_ADDONS_DIR:-/opt/odoo/custom_addons}"
 ODOO_CONFIG="${ODOO_CONFIG:-/etc/odoo/odoo.conf}"
 ODOO_SERVICE="${ODOO_SERVICE:-odoo}"
 ODOO_URL="${ODOO_URL:-}"
-MCP_PUBLIC_URL="${MCP_PUBLIC_URL:-http://127.0.0.1:8088}"
+MCP_BIND="${MCP_BIND:-0.0.0.0}"
+MCP_PUBLIC_URL="${MCP_PUBLIC_URL:-}"
 IDENTITY_ISSUER="${IDENTITY_ISSUER:-}"
 IDENTITY_AUDIENCE="${IDENTITY_AUDIENCE:-odoo-mcp}"
 IDENTITY_JWKS_URL="${IDENTITY_JWKS_URL:-}"
@@ -35,6 +36,8 @@ Useful overrides:
   ODOO_ADDONS_DIR=/opt/odoo/custom_addons
   ODOO_CONFIG=/etc/odoo/odoo.conf
   ODOO_SERVICE=odoo
+  MCP_BIND=0.0.0.0
+  MCP_PUBLIC_URL=http://64.181.194.210:8088
   IDENTITY_AUDIENCE=odoo-mcp
   CONNECTOR_SECRET=<existing-secret>
   SKIP_GIT_CLONE=1
@@ -98,6 +101,19 @@ generate_secret() {
     else
       CONNECTOR_SECRET="$(date +%s | sha256sum | awk '{print $1}')"
     fi
+  fi
+}
+
+detect_public_url() {
+  if [ -n "$MCP_PUBLIC_URL" ]; then
+    return
+  fi
+  local public_ip
+  public_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+  if [ -n "$public_ip" ]; then
+    MCP_PUBLIC_URL="http://${public_ip}:8088"
+  else
+    MCP_PUBLIC_URL="http://127.0.0.1:8088"
   fi
 }
 
@@ -168,6 +184,7 @@ ODOO_MCP_AUDIT_LOG=/var/log/odoo-mcp/audit.jsonl
 ODOO_MCP_TRANSPORT=streamable-http
 ODOO_MCP_HOST=0.0.0.0
 ODOO_MCP_PORT=8088
+ODOO_MCP_BIND=$MCP_BIND
 ODOO_MCP_PUBLIC_URL=$MCP_PUBLIC_URL
 EOF
 }
@@ -202,6 +219,10 @@ Then validate:
 MCP service URL:
   $MCP_PUBLIC_URL
 
+Direct exposure:
+  Docker is configured to bind MCP on ${MCP_BIND}:8088.
+  If external curl still fails, open TCP 8088 in the server firewall and cloud security list.
+
 Important:
   Keep deploy/.env private. It contains the connector signing secret.
 EOF
@@ -218,6 +239,7 @@ main() {
   prompt_if_empty IDENTITY_ISSUER "OIDC issuer URL"
   prompt_if_empty IDENTITY_JWKS_URL "OIDC JWKS URL"
   prompt_if_empty IDENTITY_AUDIENCE "OIDC audience / OAuth Client ID"
+  detect_public_url
   prompt_if_empty MCP_PUBLIC_URL "Public MCP URL, e.g. https://mcp.example.com"
   generate_secret
 
