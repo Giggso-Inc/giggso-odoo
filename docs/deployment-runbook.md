@@ -4,10 +4,17 @@
 
 1. Confirm Odoo version and URL.
 2. Confirm CRM and Project apps are installed.
-3. Install the `odoo_mcp_connector` add-on from `odoo_addons/`.
-4. Create or identify test users.
-5. Confirm each user has only the Odoo groups they should have.
-6. Set the Odoo system parameter `odoo_mcp_connector.signing_secret`.
+3. Clone the repository:
+
+   ```bash
+   git clone https://github.com/giggsoinc/giggso-odoo.git
+   cd giggso-odoo
+   ```
+
+4. Install the `odoo_mcp_connector` add-on from `odoo_addons/`.
+5. Create or identify test users.
+6. Confirm each user has only the Odoo groups they should have.
+7. Set the Odoo system parameter `odoo_mcp_connector.signing_secret`.
 
 ## 2. Prepare Server Files
 

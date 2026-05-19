@@ -4,15 +4,22 @@ This guide explains how an operator configures the system and how a user works w
 
 ## Operator Setup
 
-1. Install the Odoo add-on:
+1. Clone the repository:
+
+```bash
+git clone https://github.com/giggsoinc/giggso-odoo.git
+cd giggso-odoo
+```
+
+2. Install the Odoo add-on:
 
 ```bash
 cp -R odoo_addons/odoo_mcp_connector /opt/odoo/custom_addons/
 ```
 
-2. Restart Odoo and install **Odoo MCP Connector** from Apps.
+3. Restart Odoo and install **Odoo MCP Connector** from Apps.
 
-3. Create a long random connector secret and set it in Odoo:
+4. Create a long random connector secret and set it in Odoo:
 
 ```text
 Settings -> Technical -> Parameters -> System Parameters
@@ -20,7 +27,7 @@ Settings -> Technical -> Parameters -> System Parameters
 odoo_mcp_connector.signing_secret = <long-random-secret>
 ```
 
-4. Configure the MCP server `.env` with the same connector secret:
+5. Configure the MCP server `.env` with the same connector secret:
 
 ```text
 ODOO_URL=https://odoo.example.com
@@ -34,23 +41,23 @@ ODOO_MCP_PORT=8088
 ODOO_MCP_PUBLIC_URL=https://mcp.example.com
 ```
 
-5. Start the MCP service:
+6. Start the MCP service:
 
 ```bash
 cd deploy
 docker compose up -d --build
 ```
 
-6. Put the service behind HTTPS. Do not expose plain HTTP directly to the internet.
+7. Put the service behind HTTPS. Do not expose plain HTTP directly to the internet.
 
-7. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
+8. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
 
 ```text
 res.users.login
 res.users.email
 ```
 
-8. Validate with a low-risk user first:
+9. Validate with a low-risk user first:
 
 ```text
 odoo_health_check

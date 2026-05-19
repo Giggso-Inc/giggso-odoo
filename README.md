@@ -95,7 +95,16 @@ Project:
 
 ## Install
 
-### 1. Install the Odoo add-on
+### 1. Clone the repository
+
+On the Odoo server or on a server in the same private network:
+
+```bash
+git clone https://github.com/giggsoinc/giggso-odoo.git
+cd giggso-odoo
+```
+
+### 2. Install the Odoo add-on
 
 Copy the add-on into your Odoo custom addons path:
 
@@ -111,7 +120,7 @@ addons_path = /opt/odoo/odoo/addons,/opt/odoo/custom_addons
 
 Restart Odoo, update the Apps list, and install **Odoo MCP Connector**.
 
-### 2. Set the connector signing secret
+### 3. Set the connector signing secret
 
 In Odoo developer mode, go to:
 
@@ -128,7 +137,7 @@ Value: <long-random-secret>
 
 The same value must be used as `ODOO_MCP_CONNECTOR_SECRET` in the MCP server.
 
-### 3. Configure Odoo users
+### 4. Configure Odoo users
 
 Each SSO user must map to an active Odoo user. The connector checks:
 
@@ -140,7 +149,7 @@ res.users.email == identity email
 
 Keep user groups, CRM access, Project access, companies, and record rules configured in Odoo.
 
-### 4. Configure the MCP server
+### 5. Configure the MCP server
 
 Create a private `.env` from `deploy/.env.example`:
 
@@ -159,7 +168,7 @@ ODOO_MCP_PUBLIC_URL=https://mcp.example.com
 
 Do not commit `.env`.
 
-### 5. Run the MCP service
+### 6. Run the MCP service
 
 ```bash
 cd deploy
