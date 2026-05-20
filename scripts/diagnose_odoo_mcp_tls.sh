@@ -13,8 +13,8 @@ fi
 cd "$DEPLOY_DIR"
 
 echo "Host cert permissions:"
-ls -ldZ certs 2>/dev/null || ls -ld certs
-ls -lZ certs/tls.crt certs/tls.key 2>/dev/null || ls -l certs/tls.crt certs/tls.key
+sudo ls -ldZ certs 2>/dev/null || sudo ls -ld certs
+sudo ls -lZ certs/tls.crt certs/tls.key 2>/dev/null || sudo ls -l certs/tls.crt certs/tls.key
 
 echo
 echo "Compose user:"
