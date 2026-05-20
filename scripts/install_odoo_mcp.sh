@@ -131,21 +131,21 @@ generate_tls_cert() {
     return
   fi
   if [ -f "$MCP_TLS_SOURCE_CERT_FILE" ] && [ -f "$MCP_TLS_SOURCE_KEY_FILE" ]; then
-    mkdir -p "$cert_dir"
-    chmod 700 "$cert_dir"
+    sudo mkdir -p "$cert_dir"
+    sudo chmod 700 "$cert_dir"
     sudo cp "$MCP_TLS_SOURCE_CERT_FILE" "$cert_file"
     sudo cp "$MCP_TLS_SOURCE_KEY_FILE" "$key_file"
     sudo chown "$(id -u):$(id -g)" "$cert_file" "$key_file"
-    chmod 644 "$cert_file"
-    chmod 600 "$key_file"
+    sudo chmod 644 "$cert_file"
+    sudo chmod 600 "$key_file"
     return
   fi
   if ! command -v openssl >/dev/null 2>&1; then
     echo "OpenSSL is required to generate the direct HTTPS certificate." >&2
     exit 1
   fi
-  mkdir -p "$cert_dir"
-  chmod 700 "$cert_dir"
+  sudo mkdir -p "$cert_dir"
+  sudo chmod 700 "$cert_dir"
   local host_name
   host_name="${MCP_PUBLIC_URL#https://}"
   host_name="${host_name#http://}"
@@ -162,8 +162,8 @@ generate_tls_cert() {
     -days 365 \
     -subj "/CN=${host_name}" \
     -addext "subjectAltName=${san}" >/dev/null 2>&1
-  chmod 600 "$key_file"
-  chmod 644 "$cert_file"
+  sudo chmod 600 "$key_file"
+  sudo chmod 644 "$cert_file"
 }
 
 clone_or_update_repo() {
