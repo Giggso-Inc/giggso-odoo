@@ -92,6 +92,8 @@ docker compose up -d --build
 
 6. For direct IP access, open TCP `8443` in the cloud security list and host firewall.
 
+If this VM already has nginx TLS files at `/home/opc/gg-odoo-app/domaincert/nginx.crt` and `/home/opc/gg-odoo-app/domaincert/nginx.key`, the installer copies them into `deploy/certs/` and MCP reuses them automatically.
+
 7. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
 
 ```text

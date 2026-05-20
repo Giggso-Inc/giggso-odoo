@@ -203,7 +203,7 @@ The sample Compose file publishes MCP directly over HTTPS on TCP `8443` by defau
 0.0.0.0:8443 -> 8443/tcp
 ```
 
-The installer generates a self-signed certificate in `deploy/certs/` for quick direct-IP testing. Test with `curl -k https://64.181.194.210:8443`. For production, replace the generated cert with a real certificate for a DNS name or put the service behind a managed TLS endpoint.
+The installer prefers an existing nginx certificate pair if it finds one at `/home/opc/gg-odoo-app/domaincert/nginx.crt` and `/home/opc/gg-odoo-app/domaincert/nginx.key`. If those files are not present, it generates a self-signed certificate in `deploy/certs/` for quick direct-IP testing. Test with `curl -k https://64.181.194.210:8443`. For production, use the existing domain certificate or a real certificate for the MCP DNS name.
 
 ## Identity Provider Requirements
 

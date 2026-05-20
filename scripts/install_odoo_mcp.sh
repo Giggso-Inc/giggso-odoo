@@ -11,6 +11,8 @@ MCP_BIND="${MCP_BIND:-0.0.0.0}"
 MCP_PUBLIC_URL="${MCP_PUBLIC_URL:-}"
 MCP_TLS_CERT_FILE="${MCP_TLS_CERT_FILE:-/run/odoo-mcp/certs/tls.crt}"
 MCP_TLS_KEY_FILE="${MCP_TLS_KEY_FILE:-/run/odoo-mcp/certs/tls.key}"
+MCP_TLS_SOURCE_CERT_FILE="${MCP_TLS_SOURCE_CERT_FILE:-/home/opc/gg-odoo-app/domaincert/nginx.crt}"
+MCP_TLS_SOURCE_KEY_FILE="${MCP_TLS_SOURCE_KEY_FILE:-/home/opc/gg-odoo-app/domaincert/nginx.key}"
 IDENTITY_ISSUER="${IDENTITY_ISSUER:-}"
 IDENTITY_AUDIENCE="${IDENTITY_AUDIENCE:-odoo-mcp}"
 IDENTITY_JWKS_URL="${IDENTITY_JWKS_URL:-}"
@@ -42,6 +44,8 @@ Useful overrides:
   MCP_PUBLIC_URL=https://64.181.194.210:8443
   IDENTITY_AUDIENCE=odoo-mcp
   CONNECTOR_SECRET=<existing-secret>
+  MCP_TLS_SOURCE_CERT_FILE=/home/opc/gg-odoo-app/domaincert/nginx.crt
+  MCP_TLS_SOURCE_KEY_FILE=/home/opc/gg-odoo-app/domaincert/nginx.key
   SKIP_GIT_CLONE=1
   SKIP_ODOO_CONFIG_EDIT=1
   SKIP_DOCKER_START=1
@@ -124,6 +128,16 @@ generate_tls_cert() {
   local cert_file="$cert_dir/tls.crt"
   local key_file="$cert_dir/tls.key"
   if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+    return
+  fi
+  if [ -f "$MCP_TLS_SOURCE_CERT_FILE" ] && [ -f "$MCP_TLS_SOURCE_KEY_FILE" ]; then
+    mkdir -p "$cert_dir"
+    chmod 700 "$cert_dir"
+    sudo cp "$MCP_TLS_SOURCE_CERT_FILE" "$cert_file"
+    sudo cp "$MCP_TLS_SOURCE_KEY_FILE" "$key_file"
+    sudo chown "$(id -u):$(id -g)" "$cert_file" "$key_file"
+    chmod 644 "$cert_file"
+    chmod 600 "$key_file"
     return
   fi
   if ! command -v openssl >/dev/null 2>&1; then
@@ -261,7 +275,8 @@ Direct exposure:
   If external curl still fails, open TCP 8443 in the server firewall and cloud security list.
 
 TLS:
-  A self-signed certificate was generated in deploy/certs.
+  If existing nginx certs were found, they were copied into deploy/certs.
+  Otherwise a self-signed certificate was generated in deploy/certs.
   Test it with: curl -k $MCP_PUBLIC_URL
 
 Important:

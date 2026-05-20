@@ -76,6 +76,8 @@ The default compose file publishes MCP over HTTPS on TCP `8443`:
 0.0.0.0:8443 -> 8443/tcp
 ```
 
+If the VM already has nginx TLS files at `/home/opc/gg-odoo-app/domaincert/nginx.crt` and `/home/opc/gg-odoo-app/domaincert/nginx.key`, the installer copies them into `deploy/certs/` and MCP reuses that certificate pair.
+
 For OCI, add a security-list or NSG ingress rule for TCP `8443`, preferably from your client IP only.
 
 ## 5. Validate
