@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import contextlib
-
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
-from starlette.applications import Starlette
-from starlette.routing import Mount
 import uvicorn
 
 from .app import AppServices
@@ -40,22 +36,17 @@ def build_server() -> FastMCP:
 def main() -> None:
     settings = load_settings()
     mcp = build_server()
-    if settings.transport == "streamable-http":
+    if settings.transport in {"sse", "streamable-http"}:
         if settings.tls_cert_file and settings.tls_key_file:
-            run_streamable_http_tls(mcp, settings)
+            run_https_sse(mcp, settings)
             return
-        mcp.run(transport="streamable-http")
+        mcp.run(transport="sse")
         return
     mcp.run()
 
 
-def run_streamable_http_tls(mcp: FastMCP, settings: Settings) -> None:
-    @contextlib.asynccontextmanager
-    async def lifespan(_app: Starlette):
-        async with mcp.session_manager.run():
-            yield
-
-    app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lifespan)
+def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
+    app = mcp.sse_app()
     uvicorn.run(
         app,
         host=settings.host,
