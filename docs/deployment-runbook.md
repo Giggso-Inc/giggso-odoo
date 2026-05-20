@@ -70,13 +70,13 @@ cd deploy
 docker compose up -d --build
 ```
 
-The default compose file publishes MCP over HTTPS on TCP `443`:
+The default compose file publishes MCP over HTTPS on TCP `8443`:
 
 ```text
-0.0.0.0:443 -> 8443/tcp
+0.0.0.0:8443 -> 8443/tcp
 ```
 
-For OCI, add a security-list or NSG ingress rule for TCP `443`, preferably from your client IP only.
+For OCI, add a security-list or NSG ingress rule for TCP `8443`, preferably from your client IP only.
 
 ## 5. Validate
 

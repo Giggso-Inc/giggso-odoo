@@ -39,7 +39,7 @@ Useful overrides:
   ODOO_CONFIG=/etc/odoo/odoo.conf
   ODOO_SERVICE=odoo
   MCP_BIND=0.0.0.0
-  MCP_PUBLIC_URL=https://64.181.194.210
+  MCP_PUBLIC_URL=https://64.181.194.210:8443
   IDENTITY_AUDIENCE=odoo-mcp
   CONNECTOR_SECRET=<existing-secret>
   SKIP_GIT_CLONE=1
@@ -113,9 +113,9 @@ detect_public_url() {
   local public_ip
   public_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
   if [ -n "$public_ip" ]; then
-    MCP_PUBLIC_URL="https://${public_ip}"
+    MCP_PUBLIC_URL="https://${public_ip}:8443"
   else
-    MCP_PUBLIC_URL="https://127.0.0.1"
+    MCP_PUBLIC_URL="https://127.0.0.1:8443"
   fi
 }
 
@@ -257,8 +257,8 @@ MCP service URL:
   $MCP_PUBLIC_URL
 
 Direct exposure:
-  Docker is configured to bind HTTPS MCP on ${MCP_BIND}:443.
-  If external curl still fails, open TCP 443 in the server firewall and cloud security list.
+  Docker is configured to bind HTTPS MCP on ${MCP_BIND}:8443.
+  If external curl still fails, open TCP 8443 in the server firewall and cloud security list.
 
 TLS:
   A self-signed certificate was generated in deploy/certs.

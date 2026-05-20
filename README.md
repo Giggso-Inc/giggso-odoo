@@ -183,7 +183,7 @@ ODOO_MCP_TRANSPORT=streamable-http
 ODOO_MCP_HOST=0.0.0.0
 ODOO_MCP_PORT=8443
 ODOO_MCP_BIND=0.0.0.0
-ODOO_MCP_PUBLIC_URL=https://64.181.194.210
+ODOO_MCP_PUBLIC_URL=https://64.181.194.210:8443
 ODOO_MCP_TLS_CERT_FILE=/run/odoo-mcp/certs/tls.crt
 ODOO_MCP_TLS_KEY_FILE=/run/odoo-mcp/certs/tls.key
 ```
@@ -197,13 +197,13 @@ cd deploy
 docker compose up -d --build
 ```
 
-The sample Compose file publishes MCP directly over HTTPS on TCP `443` by default:
+The sample Compose file publishes MCP directly over HTTPS on TCP `8443` by default:
 
 ```text
-0.0.0.0:443 -> 8443/tcp
+0.0.0.0:8443 -> 8443/tcp
 ```
 
-The installer generates a self-signed certificate in `deploy/certs/` for quick direct-IP testing. Test with `curl -k https://64.181.194.210`. For production, replace the generated cert with a real certificate for a DNS name or put the service behind a managed TLS endpoint.
+The installer generates a self-signed certificate in `deploy/certs/` for quick direct-IP testing. Test with `curl -k https://64.181.194.210:8443`. For production, replace the generated cert with a real certificate for a DNS name or put the service behind a managed TLS endpoint.
 
 ## Identity Provider Requirements
 

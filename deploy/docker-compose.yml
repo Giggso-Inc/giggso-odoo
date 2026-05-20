@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${ODOO_MCP_BIND:-0.0.0.0}:443:8443"
+      - "${ODOO_MCP_BIND:-0.0.0.0}:8443:8443"
     volumes:
       - ./audit:/var/log/odoo-mcp
       - ./certs:/run/odoo-mcp/certs:ro
