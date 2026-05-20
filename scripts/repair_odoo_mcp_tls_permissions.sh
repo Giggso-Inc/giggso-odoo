@@ -45,3 +45,8 @@ fi
 echo "Repaired MCP TLS permissions:"
 sudo ls -ldZ "$CERT_DIR" "$AUDIT_DIR" 2>/dev/null || sudo ls -ld "$CERT_DIR" "$AUDIT_DIR"
 sudo ls -lZ "$CERT_DIR/tls.crt" "$CERT_DIR/tls.key" 2>/dev/null || sudo ls -l "$CERT_DIR/tls.crt" "$CERT_DIR/tls.key"
+
+echo
+echo "Compose runtime user:"
+cd "$DEPLOY_DIR"
+docker compose config | sed -n '/odoo-mcp:/,/^[^[:space:]]/p' | grep -E 'user:|source:|target:|read_only|bind:' || true

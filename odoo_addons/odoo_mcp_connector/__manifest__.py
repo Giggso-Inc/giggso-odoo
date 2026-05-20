@@ -11,5 +11,5 @@
         "security/ir.model.access.csv",
     ],
     "installable": True,
-    "application": False,
+    "application": True,
 }
