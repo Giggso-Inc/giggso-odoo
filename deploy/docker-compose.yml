@@ -9,5 +9,5 @@ services:
     ports:
       - "${ODOO_MCP_BIND:-0.0.0.0}:8443:8443"
     volumes:
-      - ./audit:/var/log/odoo-mcp
-      - ./certs:/run/odoo-mcp/certs:ro
+      - ./audit:/var/log/odoo-mcp:z
+      - ./certs:/run/odoo-mcp/certs:ro,z
