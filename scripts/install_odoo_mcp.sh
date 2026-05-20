@@ -132,16 +132,14 @@ generate_tls_cert() {
   local cert_file="$cert_dir/tls.crt"
   local key_file="$cert_dir/tls.key"
   if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+    secure_tls_cert_permissions "$cert_dir" "$cert_file" "$key_file"
     return
   fi
   if [ -f "$MCP_TLS_SOURCE_CERT_FILE" ] && [ -f "$MCP_TLS_SOURCE_KEY_FILE" ]; then
     sudo mkdir -p "$cert_dir"
-    sudo chmod 700 "$cert_dir"
     sudo cp "$MCP_TLS_SOURCE_CERT_FILE" "$cert_file"
     sudo cp "$MCP_TLS_SOURCE_KEY_FILE" "$key_file"
-    sudo chown "$(id -u):$(id -g)" "$cert_file" "$key_file"
-    sudo chmod 644 "$cert_file"
-    sudo chmod 600 "$key_file"
+    secure_tls_cert_permissions "$cert_dir" "$cert_file" "$key_file"
     return
   fi
   if ! command -v openssl >/dev/null 2>&1; then
@@ -149,7 +147,8 @@ generate_tls_cert() {
     exit 1
   fi
   sudo mkdir -p "$cert_dir"
-  sudo chmod 700 "$cert_dir"
+  sudo chown "$MCP_RUN_UID:$MCP_RUN_GID" "$cert_dir"
+  sudo chmod 750 "$cert_dir"
   local host_name
   host_name="${MCP_PUBLIC_URL#https://}"
   host_name="${host_name#http://}"
@@ -160,14 +159,24 @@ generate_tls_cert() {
   else
     san="DNS:${host_name}"
   fi
-  openssl req -x509 -newkey rsa:2048 -nodes \
+  sudo openssl req -x509 -newkey rsa:2048 -nodes \
     -keyout "$key_file" \
     -out "$cert_file" \
     -days 365 \
     -subj "/CN=${host_name}" \
     -addext "subjectAltName=${san}" >/dev/null 2>&1
-  sudo chmod 600 "$key_file"
+  secure_tls_cert_permissions "$cert_dir" "$cert_file" "$key_file"
+}
+
+secure_tls_cert_permissions() {
+  local cert_dir="$1"
+  local cert_file="$2"
+  local key_file="$3"
+
+  sudo chown "$MCP_RUN_UID:$MCP_RUN_GID" "$cert_dir" "$cert_file" "$key_file"
+  sudo chmod 750 "$cert_dir"
   sudo chmod 644 "$cert_file"
+  sudo chmod 640 "$key_file"
 }
 
 clone_or_update_repo() {
