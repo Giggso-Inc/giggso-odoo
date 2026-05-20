@@ -2,6 +2,7 @@ services:
   odoo-mcp:
     build:
       context: ../odoo_mcp_server
+    user: "${ODOO_MCP_RUN_UID:-1000}:${ODOO_MCP_RUN_GID:-1000}"
     restart: unless-stopped
     env_file:
       - .env
