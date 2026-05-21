@@ -47,7 +47,7 @@ def main() -> None:
 
 
 def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
-    google_client_id = settings.google_oauth_client_id or settings.identity_audience
+    google_client_id = settings.google_oauth_client_id
     resource_url = f"{settings.public_url}/sse"
     app = build_oauth_ui_app(
         mcp_app=mcp.sse_app(),
