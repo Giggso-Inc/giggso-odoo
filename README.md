@@ -170,6 +170,14 @@ The audience is your Google OAuth Client ID from:
 Google Cloud Console -> APIs & Services -> Credentials -> OAuth 2.0 Client IDs
 ```
 
+That same client ID is also what the browser OAuth flow uses. You can pass it explicitly with `ODOO_MCP_GOOGLE_CLIENT_ID`, or let the server fall back to `ODOO_MCP_IDENTITY_AUDIENCE`.
+
+In Google Cloud Console, make the OAuth client a **Web application** and register this redirect URI:
+
+```text
+<ODOO_MCP_PUBLIC_URL>/oauth/callback
+```
+
 Create a private `.env` from `deploy/.env.example`:
 
 ```text

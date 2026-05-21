@@ -62,6 +62,33 @@ def test_identity_token_verifier_rejects_invalid_jwks_token():
     assert access_token is None
 
 
+def test_identity_token_verifier_accepts_session_token():
+    token = make_token(
+        {
+            "sub": "user-1",
+            "email": "alice@example.com",
+            "scope": "crm project",
+            "iss": "https://odoo.example.com",
+            "aud": "https://odoo.example.com",
+            "typ": "odoo-mcp-session",
+            "exp": int(time.time()) + 60,
+        },
+        "session-secret",
+    )
+
+    access_token = asyncio.run(
+        IdentityTokenVerifier(
+            session_secret="session-secret",
+            issuer="https://idp.example.com",
+            audience="odoo-mcp",
+        ).verify_token(token)
+    )
+
+    assert access_token is not None
+    assert access_token.client_id == "alice@example.com"
+    assert access_token.scopes == ["crm", "project"]
+
+
 def make_token(payload: dict[str, object], secret: str) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     signing_input = ".".join(

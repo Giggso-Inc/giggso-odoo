@@ -10,6 +10,7 @@ class Settings:
     odoo_url: str
     odoo_connector_secret: str
     identity_token_secret: str | None
+    google_oauth_client_id: str | None
     audit_log: Path
     transport: str = "stdio"
     host: str = "127.0.0.1"
@@ -28,6 +29,7 @@ def load_settings() -> Settings:
         odoo_url=odoo_url,
         odoo_connector_secret=require_env("ODOO_MCP_CONNECTOR_SECRET"),
         identity_token_secret=os.getenv("ODOO_MCP_IDENTITY_TOKEN_SECRET"),
+        google_oauth_client_id=os.getenv("ODOO_MCP_GOOGLE_CLIENT_ID"),
         audit_log=Path(os.getenv("ODOO_MCP_AUDIT_LOG", "/var/log/odoo-mcp/audit.jsonl")),
         transport=os.getenv("ODOO_MCP_TRANSPORT", "stdio"),
         host=os.getenv("ODOO_MCP_HOST", "127.0.0.1"),

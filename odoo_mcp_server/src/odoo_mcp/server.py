@@ -6,6 +6,7 @@ import uvicorn
 
 from .app import AppServices
 from .config import Settings, load_settings
+from .oauth import OAuthStateStore, build_oauth_ui_app
 from .tools.admin import register_admin_tools
 from .tools.crm import register_crm_tools
 from .tools.projects import register_project_tools
@@ -46,7 +47,17 @@ def main() -> None:
 
 
 def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
-    app = mcp.sse_app()
+    google_client_id = settings.google_oauth_client_id or settings.identity_audience
+    app = build_oauth_ui_app(
+        mcp_app=mcp.sse_app(),
+        verifier=AppServices.build(settings).identity,
+        public_url=settings.public_url,
+        google_client_id=google_client_id,
+        session_secret=settings.odoo_connector_secret,
+    )
+    app.state.oauth_state_store = OAuthStateStore()
+    app.state.google_client_id = google_client_id
+    app.state.identity_issuer = settings.identity_issuer or settings.public_url
     uvicorn.run(
         app,
         host=settings.host,

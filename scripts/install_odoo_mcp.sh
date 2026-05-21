@@ -285,6 +285,11 @@ Then validate:
 MCP service URL:
   $MCP_PUBLIC_URL
 
+Google OAuth redirect URI:
+  $MCP_PUBLIC_URL/oauth/callback
+
+If you are using Google Cloud / Google Workspace, register that redirect URI on the OAuth client as a Web application callback URL.
+
 Direct exposure:
   Docker is configured to bind HTTPS MCP on ${MCP_BIND}:8443.
   If external curl still fails, open TCP 8443 in the server firewall and cloud security list.

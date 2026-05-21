@@ -29,12 +29,14 @@ class IdentityTokenVerifier:
         self,
         *,
         secret: str | None = None,
+        session_secret: str | None = None,
         issuer: str | None = None,
         audience: str | None = None,
         jwks_url: str | None = None,
         leeway_seconds: int = 30,
     ) -> None:
         self.secret = secret.encode("utf-8") if secret else None
+        self.session_secret = session_secret.encode("utf-8") if session_secret else self.secret
         self.issuer = issuer
         self.audience = audience
         self.jwks_url = jwks_url
@@ -52,9 +54,13 @@ class IdentityTokenVerifier:
         )
 
     def verify_claims(self, token: str) -> IdentityClaims:
+        header, payload, _ = split_jwt(token)
+        algorithm = header.get("alg")
+        if algorithm == "HS256" and self.session_secret and payload.get("typ") == "odoo-mcp-session":
+            return self._verify_session_claims(token, self.session_secret)
         if self.jwks_url:
             return self._verify_oidc_claims(token)
-        return self._verify_hs256_claims(token)
+        return self._verify_hs256_claims(token, self.secret)
 
     def _verify_oidc_claims(self, token: str) -> IdentityClaims:
         try:
@@ -84,8 +90,8 @@ class IdentityTokenVerifier:
 
         return claims_from_payload(payload)
 
-    def _verify_hs256_claims(self, token: str) -> IdentityClaims:
-        if not self.secret:
+    def _verify_hs256_claims(self, token: str, secret: bytes | None) -> IdentityClaims:
+        if not secret:
             raise AuthError("HS256 identity token secret is required when JWKS is not configured")
         header, payload, signature = split_jwt(token)
         algorithm = header.get("alg")
@@ -93,7 +99,7 @@ class IdentityTokenVerifier:
             raise AuthError(f"Unsupported identity token algorithm: {algorithm}")
 
         signing_input = ".".join(token.split(".")[:2]).encode("utf-8")
-        expected = hmac.new(self.secret, signing_input, hashlib.sha256).digest()
+        expected = hmac.new(secret, signing_input, hashlib.sha256).digest()
         if not hmac.compare_digest(base64url_encode(expected), signature):
             raise AuthError("Invalid identity token signature")
 
@@ -108,6 +114,28 @@ class IdentityTokenVerifier:
             raise AuthError("Identity token issuer mismatch")
         if self.audience and not audience_matches(payload.get("aud"), self.audience):
             raise AuthError("Identity token audience mismatch")
+
+        return claims_from_payload(payload)
+
+    def _verify_session_claims(self, token: str, secret: bytes) -> IdentityClaims:
+        header, payload, signature = split_jwt(token)
+        algorithm = header.get("alg")
+        if algorithm != "HS256":
+            raise AuthError(f"Unsupported session token algorithm: {algorithm}")
+        signing_input = ".".join(token.split(".")[:2]).encode("utf-8")
+        expected = hmac.new(secret, signing_input, hashlib.sha256).digest()
+        if not hmac.compare_digest(base64url_encode(expected), signature):
+            raise AuthError("Invalid session token signature")
+
+        now = int(time.time())
+        expires_at = payload.get("exp")
+        not_before = payload.get("nbf")
+        if isinstance(expires_at, int) and now > expires_at + self.leeway_seconds:
+            raise AuthError("Session token has expired")
+        if isinstance(not_before, int) and now + self.leeway_seconds < not_before:
+            raise AuthError("Session token is not valid yet")
+        if payload.get("typ") != "odoo-mcp-session":
+            raise AuthError("Invalid session token type")
 
         return claims_from_payload(payload)
 

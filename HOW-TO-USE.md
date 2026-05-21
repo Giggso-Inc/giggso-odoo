@@ -48,6 +48,14 @@ Use that generated **Client ID** as:
 ODOO_MCP_IDENTITY_AUDIENCE=<google-oauth-client-id>
 ```
 
+The browser sign-in flow uses the same value. If you want to override it explicitly, set `ODOO_MCP_GOOGLE_CLIENT_ID=<google-oauth-client-id>` in `deploy/.env`, otherwise the server will reuse `ODOO_MCP_IDENTITY_AUDIENCE`.
+
+In the Google Cloud Console OAuth client, register this redirect URI:
+
+```text
+<ODOO_MCP_PUBLIC_URL>/oauth/callback
+```
+
 Manual install path:
 
 1. Install the Odoo add-on:
