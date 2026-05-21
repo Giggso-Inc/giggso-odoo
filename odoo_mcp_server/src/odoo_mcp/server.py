@@ -6,7 +6,7 @@ import uvicorn
 
 from .app import AppServices
 from .config import Settings, load_settings
-from .oauth import OAuthStateStore, build_oauth_ui_app
+from .oauth import OAuthCodeStore, OAuthFlowStore, OAuthStateStore, build_oauth_ui_app
 from .tools.admin import register_admin_tools
 from .tools.crm import register_crm_tools
 from .tools.projects import register_project_tools
@@ -60,6 +60,8 @@ def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
         session_secret=settings.odoo_connector_secret,
     )
     app.state.oauth_state_store = OAuthStateStore()
+    app.state.oauth_flow_store = OAuthFlowStore()
+    app.state.oauth_code_store = OAuthCodeStore()
     app.state.google_client_id = google_client_id
     app.state.odoo_url = settings.odoo_url
     app.state.odoo_db_name = settings.odoo_db_name
