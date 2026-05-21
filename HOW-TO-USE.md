@@ -132,6 +132,8 @@ ODOO_MCP_IDENTITY_AUDIENCE
 ODOO_MCP_IDENTITY_JWKS_URL
 ```
 
+If your client supports MCP OAuth discovery, it should open a browser authorization flow for Google instead of asking you to paste a JWT by hand.
+
 For Google Cloud / Google Workspace:
 
 ```text

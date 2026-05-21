@@ -22,7 +22,7 @@ def build_server() -> FastMCP:
         port=settings.port,
         token_verifier=services.identity,
         auth=AuthSettings(
-            issuer_url=settings.public_url,
+            issuer_url=settings.identity_issuer or settings.public_url,
             resource_server_url=settings.public_url,
             required_scopes=[],
         ),
