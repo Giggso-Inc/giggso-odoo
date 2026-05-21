@@ -48,12 +48,14 @@ def main() -> None:
 
 def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
     google_client_id = settings.google_oauth_client_id or settings.identity_audience
+    resource_url = f"{settings.public_url}/sse"
     app = build_oauth_ui_app(
         mcp_app=mcp.sse_app(),
         verifier=AppServices.build(settings).identity,
         odoo_url=settings.odoo_url,
         odoo_db_name=settings.odoo_db_name,
         public_url=settings.public_url,
+        resource_url=resource_url,
         google_client_id=google_client_id,
         session_secret=settings.odoo_connector_secret,
     )
@@ -62,6 +64,7 @@ def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
     app.state.odoo_url = settings.odoo_url
     app.state.odoo_db_name = settings.odoo_db_name
     app.state.identity_issuer = settings.identity_issuer or settings.public_url
+    app.state.resource_url = resource_url
     uvicorn.run(
         app,
         host=settings.host,

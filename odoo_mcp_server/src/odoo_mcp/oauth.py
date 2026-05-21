@@ -79,6 +79,7 @@ def build_oauth_ui_app(
     odoo_url: str,
     odoo_db_name: str | None,
     public_url: str,
+    resource_url: str,
     google_client_id: str | None,
     session_secret: str,
     session_cookie_name: str = "odoo_mcp_session",
@@ -93,6 +94,7 @@ def build_oauth_ui_app(
         "/authorize/odoo",
         "/oauth/callback",
         "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/sse",
     }
 
     async def authorize_google_route(request: Request) -> Response:
@@ -114,6 +116,9 @@ def build_oauth_ui_app(
     async def callback_google_route(request: Request) -> Response:
         return callback_google(request, verifier, public_url, session_secret, session_cookie_name)
 
+    async def oauth_protected_resource_route(request: Request) -> JSONResponse:
+        return oauth_protected_resource(request, public_url, resource_url, google_client_id)
+
     app = Starlette(
         routes=[
             Route("/", endpoint=lambda request: root_page(request, public_url), methods=["GET"]),
@@ -121,7 +126,8 @@ def build_oauth_ui_app(
             Route("/authorize/odoo", endpoint=odoo_login_form_route, methods=["GET"]),
             Route("/authorize/odoo", endpoint=odoo_login_submit_route, methods=["POST"]),
             Route("/oauth/callback", endpoint=callback_google_route, methods=["GET"]),
-            Route("/.well-known/oauth-protected-resource", endpoint=lambda request: oauth_protected_resource(request, public_url, google_client_id), methods=["GET"]),
+            Route("/.well-known/oauth-protected-resource", endpoint=oauth_protected_resource_route, methods=["GET"]),
+            Route("/.well-known/oauth-protected-resource/sse", endpoint=oauth_protected_resource_route, methods=["GET"]),
             Mount("/", app=mcp_app),
         ]
     )
@@ -272,11 +278,16 @@ def callback_google(
     return response
 
 
-def oauth_protected_resource(request: Request, public_url: str, google_client_id: str | None) -> JSONResponse:
+def oauth_protected_resource(
+    request: Request,
+    public_url: str,
+    resource_url: str,
+    google_client_id: str | None,
+) -> JSONResponse:
     """Expose protected-resource metadata for OAuth-aware MCP clients."""
     authorization_servers = list(dict.fromkeys([public_url, request.app.state.identity_issuer or public_url]))
     data = {
-        "resource": public_url,
+        "resource": resource_url,
         "authorization_servers": authorization_servers,
         "bearer_methods_supported": ["header", "cookie"],
         "resource_documentation": f"{public_url}/",

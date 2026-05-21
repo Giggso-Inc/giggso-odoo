@@ -121,6 +121,14 @@ detect_public_url() {
   if [ -n "$MCP_PUBLIC_URL" ]; then
     return
   fi
+  if [ -n "$ODOO_URL" ]; then
+    local host_name
+    host_name="${ODOO_URL#*://}"
+    host_name="${host_name%%/*}"
+    host_name="${host_name%%:*}"
+    MCP_PUBLIC_URL="https://${host_name}:8443"
+    return
+  fi
   local public_ip
   public_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
   if [ -n "$public_ip" ]; then
