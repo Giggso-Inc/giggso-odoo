@@ -91,11 +91,15 @@ def build_oauth_ui_app(
     public_paths = {
         "/",
         "/authorize",
+        "/authorize/google",
         "/authorize/odoo",
         "/oauth/callback",
         "/.well-known/oauth-protected-resource",
         "/.well-known/oauth-protected-resource/sse",
     }
+
+    async def authorize_route(request: Request) -> HTMLResponse:
+        return root_page(request, public_url, google_client_id)
 
     async def authorize_google_route(request: Request) -> Response:
         return authorize_google(request, public_url, google_client_id)
@@ -121,8 +125,9 @@ def build_oauth_ui_app(
 
     app = Starlette(
         routes=[
-            Route("/", endpoint=lambda request: root_page(request, public_url), methods=["GET"]),
-            Route("/authorize", endpoint=authorize_google_route, methods=["GET"]),
+            Route("/", endpoint=authorize_route, methods=["GET"]),
+            Route("/authorize", endpoint=authorize_route, methods=["GET"]),
+            Route("/authorize/google", endpoint=authorize_google_route, methods=["GET"]),
             Route("/authorize/odoo", endpoint=odoo_login_form_route, methods=["GET"]),
             Route("/authorize/odoo", endpoint=odoo_login_submit_route, methods=["POST"]),
             Route("/oauth/callback", endpoint=callback_google_route, methods=["GET"]),
@@ -135,16 +140,16 @@ def build_oauth_ui_app(
     return app
 
 
-def root_page(request: Request, public_url: str) -> HTMLResponse:
+def root_page(request: Request, public_url: str, google_client_id: str | None = None) -> HTMLResponse:
     """Render a small landing page with the authorize link."""
-    google_url = f"{public_url}/authorize"
     odoo_url = f"{public_url}/authorize/odoo"
+    google_link = f'<p><a href="{public_url}/authorize/google">Sign in with Google</a></p>' if google_client_id else ""
     html = f"""
     <html>
       <body>
         <h1>Odoo MCP</h1>
-        <p><a href="{google_url}">Sign in with Google</a></p>
         <p><a href="{odoo_url}">Sign in with Odoo</a></p>
+        {google_link}
         <p>After authorization, continue back to your MCP client.</p>
       </body>
     </html>
@@ -285,10 +290,9 @@ def oauth_protected_resource(
     google_client_id: str | None,
 ) -> JSONResponse:
     """Expose protected-resource metadata for OAuth-aware MCP clients."""
-    authorization_servers = list(dict.fromkeys([public_url, request.app.state.identity_issuer or public_url]))
     data = {
         "resource": resource_url,
-        "authorization_servers": authorization_servers,
+        "authorization_servers": [public_url],
         "bearer_methods_supported": ["header", "cookie"],
         "resource_documentation": f"{public_url}/",
         "scopes_supported": ["openid", "email", "profile"],
