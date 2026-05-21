@@ -7,6 +7,7 @@ ODOO_ADDONS_DIR="${ODOO_ADDONS_DIR:-/opt/odoo/custom_addons}"
 ODOO_CONFIG="${ODOO_CONFIG:-/etc/odoo/odoo.conf}"
 ODOO_SERVICE="${ODOO_SERVICE:-odoo}"
 ODOO_URL="${ODOO_URL:-}"
+ODOO_DB_NAME="${ODOO_DB_NAME:-}"
 MCP_BIND="${MCP_BIND:-0.0.0.0}"
 MCP_PUBLIC_URL="${MCP_PUBLIC_URL:-}"
 MCP_TLS_CERT_FILE="${MCP_TLS_CERT_FILE:-/run/odoo-mcp/certs/tls.crt}"
@@ -32,6 +33,7 @@ Run from anywhere:
 
 Or without prompts:
   ODOO_URL=https://odoo.example.com \
+  ODOO_DB_NAME=odoo-prod \
   IDENTITY_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0 \
   IDENTITY_JWKS_URL=https://login.microsoftonline.com/<tenant-id>/discovery/v2.0/keys \
   MCP_PUBLIC_URL=https://mcp.example.com \
@@ -44,6 +46,7 @@ Useful overrides:
   ODOO_SERVICE=odoo
   MCP_BIND=0.0.0.0
   MCP_PUBLIC_URL=https://64.181.194.210:8443
+  ODOO_DB_NAME=odoo-prod
   IDENTITY_AUDIENCE=odoo-mcp
   CONNECTOR_SECRET=<existing-secret>
   MCP_RUN_UID=$(id -u)
@@ -236,8 +239,9 @@ restart_odoo() {
 write_env() {
   mkdir -p "$REPO_DIR/deploy/audit"
   umask 077
-  cat > "$REPO_DIR/deploy/.env" <<EOF
+cat > "$REPO_DIR/deploy/.env" <<EOF
 ODOO_URL=$ODOO_URL
+ODOO_DB_NAME=$ODOO_DB_NAME
 ODOO_MCP_CONNECTOR_SECRET=$CONNECTOR_SECRET
 ODOO_MCP_IDENTITY_ISSUER=$IDENTITY_ISSUER
 ODOO_MCP_IDENTITY_AUDIENCE=$IDENTITY_AUDIENCE
@@ -290,6 +294,10 @@ Google OAuth redirect URI:
 
 If you are using Google Cloud / Google Workspace, register that redirect URI on the OAuth client as a Web application callback URL.
 
+Plain Odoo login:
+  The landing page also offers an Odoo username/password login.
+  If you want that path, keep ODOO_DB_NAME set in deploy/.env or enter it on the login form.
+
 Direct exposure:
   Docker is configured to bind HTTPS MCP on ${MCP_BIND}:8443.
   If external curl still fails, open TCP 8443 in the server firewall and cloud security list.
@@ -311,6 +319,9 @@ main() {
   fi
 
   prompt_if_empty ODOO_URL "Odoo URL, e.g. https://odoo.example.com"
+  if [ -z "$ODOO_DB_NAME" ]; then
+    read -r -p "Odoo database name (required for plain Odoo login; optional for Google SSO): " ODOO_DB_NAME
+  fi
   select_identity_defaults
   prompt_if_empty IDENTITY_ISSUER "OIDC issuer URL"
   prompt_if_empty IDENTITY_JWKS_URL "OIDC JWKS URL"

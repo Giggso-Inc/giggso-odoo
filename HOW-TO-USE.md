@@ -78,6 +78,7 @@ odoo_mcp_connector.signing_secret = <long-random-secret>
 
 ```text
 ODOO_URL=https://odoo.example.com
+ODOO_DB_NAME=odoo-prod
 ODOO_MCP_CONNECTOR_SECRET=<long-random-secret>
 ODOO_MCP_IDENTITY_ISSUER=https://accounts.google.com
 ODOO_MCP_IDENTITY_AUDIENCE=<google-oauth-client-id>
@@ -102,14 +103,21 @@ docker compose up -d --build
 
 If this VM already has nginx TLS files at `/home/opc/gg-odoo-app/domaincert/nginx.crt` and `/home/opc/gg-odoo-app/domaincert/nginx.key`, the installer copies them into `deploy/certs/` and MCP reuses them automatically.
 
-7. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
+7. Choose the login path when the landing page opens:
+
+- Google sign-in for SSO environments.
+- Odoo sign-in for plain username/password environments.
+
+For Odoo sign-in, enter the database name if the form asks for it. You can also set `ODOO_DB_NAME` in `deploy/.env`.
+
+8. Confirm Odoo user identity mapping. The IdP token must contain an email-like claim that matches either:
 
 ```text
 res.users.login
 res.users.email
 ```
 
-8. Validate with a low-risk user first:
+9. Validate with a low-risk user first:
 
 ```text
 odoo_health_check

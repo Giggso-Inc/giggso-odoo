@@ -182,6 +182,7 @@ Create a private `.env` from `deploy/.env.example`:
 
 ```text
 ODOO_URL=https://odoo.example.com
+ODOO_DB_NAME=odoo-prod
 ODOO_MCP_CONNECTOR_SECRET=<same-long-random-secret>
 ODOO_MCP_IDENTITY_ISSUER=https://idp.example.com
 ODOO_MCP_IDENTITY_AUDIENCE=odoo-mcp
@@ -243,6 +244,15 @@ https://idp.example.com/.well-known/jwks.json
 - Odoo maps the actor email to `res.users`.
 - Odoo executes CRM/Project ORM operations with `with_user(real_user)`.
 - Odoo ACLs and record rules decide what the user can read or write.
+
+## Login Modes
+
+The public landing page exposes two flows:
+
+- Google OAuth / SSO for organizations that already have Google identity.
+- Plain Odoo login for environments that only have an Odoo username and password.
+
+For plain Odoo login, set `ODOO_DB_NAME` in `deploy/.env` or enter it on the login form. For Google OAuth, the same server can still use `ODOO_MCP_IDENTITY_ISSUER`, `ODOO_MCP_IDENTITY_AUDIENCE`, and `ODOO_MCP_IDENTITY_JWKS_URL`.
 
 ## Development
 

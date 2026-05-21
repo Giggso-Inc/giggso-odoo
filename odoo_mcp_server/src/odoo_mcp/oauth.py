@@ -6,6 +6,7 @@ import hmac
 import json
 import secrets
 import time
+import xmlrpc.client
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -75,6 +76,8 @@ def build_oauth_ui_app(
     *,
     mcp_app: ASGIApp,
     verifier: IdentityTokenVerifier,
+    odoo_url: str,
+    odoo_db_name: str | None,
     public_url: str,
     google_client_id: str | None,
     session_secret: str,
@@ -87,14 +90,37 @@ def build_oauth_ui_app(
     public_paths = {
         "/",
         "/authorize",
+        "/authorize/odoo",
         "/oauth/callback",
         "/.well-known/oauth-protected-resource",
     }
+
+    async def authorize_google_route(request: Request) -> Response:
+        return authorize_google(request, public_url, google_client_id)
+
+    async def odoo_login_form_route(request: Request) -> HTMLResponse:
+        return odoo_login_form(request, public_url, odoo_db_name)
+
+    async def odoo_login_submit_route(request: Request) -> Response:
+        return await odoo_login_submit(
+            request,
+            public_url=public_url,
+            session_secret=session_secret,
+            session_cookie_name=session_cookie_name,
+            odoo_url=odoo_url,
+            odoo_db_name=odoo_db_name,
+        )
+
+    async def callback_google_route(request: Request) -> Response:
+        return callback_google(request, verifier, public_url, session_secret, session_cookie_name)
+
     app = Starlette(
         routes=[
             Route("/", endpoint=lambda request: root_page(request, public_url), methods=["GET"]),
-            Route("/authorize", endpoint=lambda request: authorize(request, public_url, google_client_id), methods=["GET"]),
-            Route("/oauth/callback", endpoint=lambda request: callback(request, verifier, public_url, session_secret, session_cookie_name), methods=["GET"]),
+            Route("/authorize", endpoint=authorize_google_route, methods=["GET"]),
+            Route("/authorize/odoo", endpoint=odoo_login_form_route, methods=["GET"]),
+            Route("/authorize/odoo", endpoint=odoo_login_submit_route, methods=["POST"]),
+            Route("/oauth/callback", endpoint=callback_google_route, methods=["GET"]),
             Route("/.well-known/oauth-protected-resource", endpoint=lambda request: oauth_protected_resource(request, public_url, google_client_id), methods=["GET"]),
             Mount("/", app=mcp_app),
         ]
@@ -105,20 +131,22 @@ def build_oauth_ui_app(
 
 def root_page(request: Request, public_url: str) -> HTMLResponse:
     """Render a small landing page with the authorize link."""
-    authorize_url = f"{public_url}/authorize"
+    google_url = f"{public_url}/authorize"
+    odoo_url = f"{public_url}/authorize/odoo"
     html = f"""
     <html>
       <body>
         <h1>Odoo MCP</h1>
-        <p><a href="{authorize_url}">Sign in with Google</a></p>
-        <p>After authorization, connect your MCP client to /sse.</p>
+        <p><a href="{google_url}">Sign in with Google</a></p>
+        <p><a href="{odoo_url}">Sign in with Odoo</a></p>
+        <p>After authorization, continue back to your MCP client.</p>
       </body>
     </html>
     """
     return HTMLResponse(html)
 
 
-def authorize(request: Request, public_url: str, google_client_id: str | None) -> Response:
+def authorize_google(request: Request, public_url: str, google_client_id: str | None) -> Response:
     """Start Google OAuth with PKCE."""
     if not google_client_id:
         return JSONResponse({"error": "ODOO_MCP_GOOGLE_CLIENT_ID is required"}, status_code=500)
@@ -140,7 +168,61 @@ def authorize(request: Request, public_url: str, google_client_id: str | None) -
     return RedirectResponse(f"{GOOGLE_AUTH_URL}?{urllib.parse.urlencode(params)}", status_code=302)
 
 
-def callback(
+def odoo_login_form(request: Request, public_url: str, odoo_db_name: str | None) -> HTMLResponse:
+    """Render a plain Odoo login form for non-SSO environments."""
+    db_field = odoo_db_name or ""
+    html = f"""
+    <html>
+      <body>
+        <h1>Sign in with Odoo</h1>
+        <form method="post" action="{public_url}/authorize/odoo">
+          <p><label>Database<br><input name="db" value="{html_escape(db_field)}" /></label></p>
+          <p><label>Login<br><input name="login" /></label></p>
+          <p><label>Password<br><input name="password" type="password" /></label></p>
+          <p><button type="submit">Authorize</button></p>
+        </form>
+      </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
+
+async def odoo_login_submit(
+    request: Request,
+    public_url: str,
+    session_secret: str,
+    session_cookie_name: str,
+    odoo_url: str,
+    odoo_db_name: str | None,
+) -> Response:
+    """Authenticate against Odoo directly and mint a local MCP session."""
+    form = await request.form()
+    login = str(form.get("login") or "").strip()
+    password = str(form.get("password") or "")
+    db_name = str(form.get("db") or odoo_db_name or "").strip()
+    if not db_name:
+        return JSONResponse({"error": "ODOO_DB_NAME is required for Odoo login"}, status_code=400)
+    if not login or not password:
+        return JSONResponse({"error": "Login and password are required"}, status_code=400)
+
+    claims = authenticate_odoo_user(odoo_url=odoo_url, db_name=db_name, login=login, password=password)
+    session_token = mint_session_token(claims, public_url=public_url, session_secret=session_secret)
+    response = HTMLResponse(
+        "<html><body><h1>Authorized</h1><p>You can return to Claude and continue.</p></body></html>"
+    )
+    response.set_cookie(
+        session_cookie_name,
+        session_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 12,
+        path="/",
+    )
+    return response
+
+
+def callback_google(
     request: Request,
     verifier: IdentityTokenVerifier,
     public_url: str,
@@ -192,10 +274,10 @@ def callback(
 
 def oauth_protected_resource(request: Request, public_url: str, google_client_id: str | None) -> JSONResponse:
     """Expose protected-resource metadata for OAuth-aware MCP clients."""
-    authorization_server = request.app.state.identity_issuer or public_url
+    authorization_servers = list(dict.fromkeys([public_url, request.app.state.identity_issuer or public_url]))
     data = {
         "resource": public_url,
-        "authorization_servers": [authorization_server],
+        "authorization_servers": authorization_servers,
         "bearer_methods_supported": ["header", "cookie"],
         "resource_documentation": f"{public_url}/",
         "scopes_supported": ["openid", "email", "profile"],
@@ -228,6 +310,31 @@ def exchange_google_code(*, code: str, code_verifier: str, client_id: str | None
         return json.loads(response.read())
 
 
+def authenticate_odoo_user(*, odoo_url: str, db_name: str, login: str, password: str) -> IdentityClaims:
+    """Authenticate an Odoo login and convert it into identity claims."""
+    common = xmlrpc.client.ServerProxy(f"{odoo_url}/xmlrpc/2/common")
+    uid = common.authenticate(db_name, login, password, {})
+    if not uid:
+        raise AuthError("Invalid Odoo credentials")
+    models = xmlrpc.client.ServerProxy(f"{odoo_url}/xmlrpc/2/object")
+    user_rows = models.execute_kw(
+        db_name,
+        uid,
+        password,
+        "res.users",
+        "read",
+        [[uid]],
+        {"fields": ["login", "email"]},
+    )
+    if not user_rows:
+        raise AuthError("Unable to load Odoo user record")
+    user = user_rows[0]
+    actor = str(user.get("login") or user.get("email") or login).strip()
+    if not actor:
+        raise AuthError("Odoo user record does not include a login or email")
+    return IdentityClaims(subject=f"odoo:{uid}", email=actor, scopes=("crm", "project"))
+
+
 def mint_session_token(claims: IdentityClaims, *, public_url: str, session_secret: str) -> str:
     """Mint a short-lived MCP session token from verified OIDC claims."""
     payload = {
@@ -245,3 +352,13 @@ def mint_session_token(claims: IdentityClaims, *, public_url: str, session_secre
 
 def base64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def html_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#x27;")
+    )
