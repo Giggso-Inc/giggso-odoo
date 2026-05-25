@@ -1,3 +1,21 @@
+"""
+Odoo MCP server entry point.
+
+Summary:
+    Builds the FastMCP server, registers tool modules (admin, crm,
+    projects), and either runs the stdio transport directly or hands
+    off to run_https_sse() which mounts the OAuth + headless-bearer
+    Starlette app via build_oauth_ui_app().
+
+Version: 0.2.0
+Execution context: process entry point (CLI `python -m odoo_mcp.server`)
+
+Changelog:
+    0.2.0 (Cycle 2.1): attach bearer_config + revoked_token_store to
+        app.state; share one IdentityTokenVerifier across both flows.
+    0.1.0:             original cookie-only OAuth wiring.
+"""
+
 from __future__ import annotations
 
 from mcp.server.auth.settings import AuthSettings
@@ -5,6 +23,7 @@ from mcp.server.fastmcp import FastMCP
 import uvicorn
 
 from .app import AppServices
+from .bearer_store import BearerConfig, RevokedTokenStore
 from .config import Settings, load_settings
 from .oauth import OAuthCodeStore, OAuthFlowStore, OAuthStateStore, build_oauth_ui_app
 from .tools.admin import register_admin_tools
@@ -49,9 +68,13 @@ def main() -> None:
 def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
     google_client_id = settings.google_oauth_client_id
     resource_url = f"{settings.public_url}/sse"
+    # Build the verifier once so the same instance backs both the cookie
+    # flow and the headless bearer flow — keeps signature verification
+    # consistent across all entry points.
+    identity_verifier = AppServices.build(settings).identity
     app = build_oauth_ui_app(
         mcp_app=mcp.sse_app(),
-        verifier=AppServices.build(settings).identity,
+        verifier=identity_verifier,
         odoo_url=settings.odoo_url,
         odoo_db_name=settings.odoo_db_name,
         public_url=settings.public_url,
@@ -67,6 +90,16 @@ def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
     app.state.odoo_db_name = settings.odoo_db_name
     app.state.identity_issuer = settings.identity_issuer or settings.public_url
     app.state.resource_url = resource_url
+    # Headless bearer-token flow state. Same secret as the cookie flow so
+    # tokens issued via /auth/issue-token validate via the same verifier.
+    app.state.bearer_config = BearerConfig(
+        public_url=settings.public_url,
+        session_secret=settings.odoo_connector_secret,
+        odoo_url=settings.odoo_url,
+        odoo_db_name=settings.odoo_db_name,
+        verifier=identity_verifier,
+    )
+    app.state.revoked_token_store = RevokedTokenStore()
     uvicorn.run(
         app,
         host=settings.host,
