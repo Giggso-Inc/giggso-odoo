@@ -1,5 +1,11 @@
 # TLS termination for the Odoo MCP server (existing nginx)
 
+> **Preferred path: use the installer.** Run
+> `MCP_FRONTEND_MODE=nginx MCP_PUBLIC_URL=https://odoo.giggso.com/mcp bash scripts/install_odoo_mcp.sh`
+> on the EC2 host and it does Steps 1, 2, and 3 below for you in one
+> shot — writes the loopback `.env`, drops the nginx conf, validates,
+> and reloads. The manual steps below are kept for reference and rollback.
+
 **Version:** Cycle 2 · 2026-05-25
 **Audience:** ops on the EC2 host running `odoo.giggso.com`
 **Scope:** put nginx in front of the FastMCP service so Claude Desktop sees a

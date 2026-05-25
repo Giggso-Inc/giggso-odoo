@@ -24,6 +24,12 @@ SKIP_GIT_CLONE="${SKIP_GIT_CLONE:-0}"
 SKIP_ODOO_CONFIG_EDIT="${SKIP_ODOO_CONFIG_EDIT:-0}"
 SKIP_DOCKER_START="${SKIP_DOCKER_START:-0}"
 
+# ── Frontend mode (Cycle 2.1) ────────────────────────────────────────
+# direct: uvicorn binds 0.0.0.0:8443 with self-signed cert (old default)
+# nginx:  uvicorn binds 127.0.0.1:8443, nginx terminates public TLS
+#         using existing certs at MCP_NGINX_CERT / MCP_NGINX_KEY.
+MCP_FRONTEND_MODE="${MCP_FRONTEND_MODE:-direct}"
+
 usage() {
   cat <<'USAGE'
 Install Giggso Odoo MCP on an open-source Odoo server.
@@ -342,8 +348,18 @@ main() {
   copy_addon
   ensure_addons_path
   restart_odoo
-  generate_tls_cert
-  write_env
+
+  # Cycle 2.1: branch between direct-TLS and nginx-frontend modes.
+  # nginx mode skips cert generation and writes a loopback-bound .env.
+  if [ "$MCP_FRONTEND_MODE" = "nginx" ]; then
+    # shellcheck source=scripts/install_nginx_frontend.sh
+    source "$(dirname "$0")/install_nginx_frontend.sh"
+    apply_nginx_frontend
+  else
+    generate_tls_cert
+    write_env
+  fi
+
   start_docker
   print_next_steps
 }
