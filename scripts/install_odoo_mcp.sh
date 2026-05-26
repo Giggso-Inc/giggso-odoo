@@ -1,6 +1,32 @@
 #!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────
+# scripts/install_odoo_mcp.sh — one-command installer for Giggso Odoo MCP
+#
+# Summary:
+#   Clones/updates the repo, installs the Odoo addon, writes deploy/.env,
+#   and starts Docker containers. Supports two frontend modes:
+#     direct — uvicorn binds 0.0.0.0:8443 with TLS cert (Cycle 1 style)
+#     nginx  — uvicorn plain HTTP, nginx sidecar terminates public TLS
+#              on host port MCP_NGINX_HOST_PORT (default 9443)
+#   Non-interactive when IDENTITY_ISSUER / IDENTITY_AUDIENCE /
+#   IDENTITY_JWKS_URL are all pre-set (even to empty string).
+#   CONNECTOR_SECRET is preserved from env if already set and non-empty.
+#
+# Usage (nginx sidecar mode, port 9443 — as deployed tonight):
+#   sudo MCP_FRONTEND_MODE=nginx \
+#        MCP_PUBLIC_URL=https://odoo.giggso.com:9443/mcp \
+#        ODOO_URL=https://odoo.giggso.com \
+#        ODOO_DB_NAME=odoo-prod \
+#        IDENTITY_ISSUER=https://accounts.google.com \
+#        IDENTITY_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs \
+#        bash scripts/install_odoo_mcp.sh
+#
+# Version: 1.1.0 (Cycle 2.3 overnight cleanup — bugs 1-6 fixed)
+# ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ── Defaults ──────────────────────────────────────────────────────────
 REPO_URL="https://github.com/giggsoinc/giggso-odoo.git"
 REPO_DIR="${REPO_DIR:-$HOME/giggso-odoo}"
 ODOO_ADDONS_DIR="${ODOO_ADDONS_DIR:-/opt/odoo/custom_addons}"
@@ -23,217 +49,50 @@ CONNECTOR_SECRET="${CONNECTOR_SECRET:-}"
 SKIP_GIT_CLONE="${SKIP_GIT_CLONE:-0}"
 SKIP_ODOO_CONFIG_EDIT="${SKIP_ODOO_CONFIG_EDIT:-0}"
 SKIP_DOCKER_START="${SKIP_DOCKER_START:-0}"
-
-# ── Frontend mode (Cycle 2.1) ────────────────────────────────────────
-# direct: uvicorn binds 0.0.0.0:8443 with self-signed cert (old default)
-# nginx:  uvicorn binds 127.0.0.1:8443, nginx terminates public TLS
-#         using existing certs at MCP_NGINX_CERT / MCP_NGINX_KEY.
 MCP_FRONTEND_MODE="${MCP_FRONTEND_MODE:-direct}"
 
-usage() {
-  cat <<'USAGE'
-Install Giggso Odoo MCP on an open-source Odoo server.
+# ── Helper modules ────────────────────────────────────────────────────
+# shellcheck source=scripts/lib/identity-prompts.sh
+source "$SCRIPT_DIR/lib/identity-prompts.sh"
+# shellcheck source=scripts/lib/secret-mgmt.sh
+source "$SCRIPT_DIR/lib/secret-mgmt.sh"
+# shellcheck source=scripts/lib/direct-mode.sh
+source "$SCRIPT_DIR/lib/direct-mode.sh"
 
-Run from anywhere:
-  bash scripts/install_odoo_mcp.sh
-
-Or without prompts:
-  ODOO_URL=https://odoo.example.com \
-  ODOO_DB_NAME=odoo-prod \
-  IDENTITY_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0 \
-  IDENTITY_JWKS_URL=https://login.microsoftonline.com/<tenant-id>/discovery/v2.0/keys \
-  MCP_PUBLIC_URL=https://mcp.example.com \
-  bash scripts/install_odoo_mcp.sh
-
-Useful overrides:
-  REPO_DIR=$HOME/giggso-odoo
-  ODOO_ADDONS_DIR=/opt/odoo/custom_addons
-  ODOO_CONFIG=/etc/odoo/odoo.conf
-  ODOO_SERVICE=odoo
-  MCP_BIND=0.0.0.0
-  MCP_PUBLIC_URL=https://64.181.194.210:8443
-  ODOO_DB_NAME=odoo-prod
-  IDENTITY_AUDIENCE=odoo-mcp
-  CONNECTOR_SECRET=<existing-secret>
-  MCP_RUN_UID=$(id -u)
-  MCP_RUN_GID=$(id -g)
-  MCP_TLS_SOURCE_CERT_FILE=/home/opc/gg-odoo-app/domaincert/nginx.crt
-  MCP_TLS_SOURCE_KEY_FILE=/home/opc/gg-odoo-app/domaincert/nginx.key
-  SKIP_GIT_CLONE=1
-  SKIP_ODOO_CONFIG_EDIT=1
-  SKIP_DOCKER_START=1
-USAGE
-}
-
-select_identity_defaults() {
-  if [ -n "$IDENTITY_ISSUER" ] || [ -n "$IDENTITY_JWKS_URL" ]; then
-    return
-  fi
-  echo "Identity provider:"
-  echo "  1) Google Cloud / Google Workspace"
-  echo "  2) Microsoft Entra ID"
-  echo "  3) Okta"
-  echo "  4) Custom OIDC"
-  read -r -p "Select [1-4, default 1]: " provider
-  provider="${provider:-1}"
-  case "$provider" in
-    1)
-      IDENTITY_ISSUER="https://accounts.google.com"
-      IDENTITY_JWKS_URL="https://www.googleapis.com/oauth2/v3/certs"
-      ;;
-    2)
-      read -r -p "Microsoft tenant ID: " tenant_id
-      IDENTITY_ISSUER="https://login.microsoftonline.com/${tenant_id}/v2.0"
-      IDENTITY_JWKS_URL="https://login.microsoftonline.com/${tenant_id}/discovery/v2.0/keys"
-      ;;
-    3)
-      read -r -p "Okta domain, e.g. https://yourcompany.okta.com: " okta_domain
-      IDENTITY_ISSUER="${okta_domain%/}/oauth2/default"
-      IDENTITY_JWKS_URL="${okta_domain%/}/oauth2/default/v1/keys"
-      ;;
-    *)
-      ;;
-  esac
-}
-
-need_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing required command: $1" >&2
-    exit 1
-  fi
-}
-
+# ── Utilities ─────────────────────────────────────────────────────────
+need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1" >&2; exit 1; }; }
 prompt_if_empty() {
-  local var_name="$1"
-  local prompt="$2"
-  local current_value="${!var_name:-}"
-  if [ -z "$current_value" ]; then
-    read -r -p "$prompt: " current_value
-    printf -v "$var_name" '%s' "$current_value"
-  fi
+  local val="${!1:-}"; [ -n "$val" ] && return
+  read -r -p "$2: " val; printf -v "$1" '%s' "$val"
 }
-
-generate_secret() {
-  if [ -z "$CONNECTOR_SECRET" ]; then
-    if command -v openssl >/dev/null 2>&1; then
-      CONNECTOR_SECRET="$(openssl rand -hex 32)"
-    else
-      CONNECTOR_SECRET="$(date +%s | sha256sum | awk '{print $1}')"
-    fi
-  fi
-}
-
 detect_public_url() {
-  if [ -n "$MCP_PUBLIC_URL" ]; then
-    return
-  fi
+  [ -n "$MCP_PUBLIC_URL" ] && return
+  local h public_ip
   if [ -n "$ODOO_URL" ]; then
-    local host_name
-    host_name="${ODOO_URL#*://}"
-    host_name="${host_name%%/*}"
-    host_name="${host_name%%:*}"
-    MCP_PUBLIC_URL="https://${host_name}:8443"
-    return
+    h="${ODOO_URL#*://}"; h="${h%%/*}"; h="${h%%:*}"
+    MCP_PUBLIC_URL="https://${h}:8443"; return
   fi
-  local public_ip
   public_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
-  if [ -n "$public_ip" ]; then
-    MCP_PUBLIC_URL="https://${public_ip}:8443"
-  else
-    MCP_PUBLIC_URL="https://127.0.0.1:8443"
-  fi
+  MCP_PUBLIC_URL="https://${public_ip:-127.0.0.1}:8443"
 }
 
-generate_tls_cert() {
-  local cert_dir="$REPO_DIR/deploy/certs"
-  local cert_file="$cert_dir/tls.crt"
-  local key_file="$cert_dir/tls.key"
-  if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
-    secure_tls_cert_permissions "$cert_dir" "$cert_file" "$key_file"
-    return
-  fi
-  if [ -f "$MCP_TLS_SOURCE_CERT_FILE" ] && [ -f "$MCP_TLS_SOURCE_KEY_FILE" ]; then
-    sudo mkdir -p "$cert_dir"
-    sudo cp "$MCP_TLS_SOURCE_CERT_FILE" "$cert_file"
-    sudo cp "$MCP_TLS_SOURCE_KEY_FILE" "$key_file"
-    secure_tls_cert_permissions "$cert_dir" "$cert_file" "$key_file"
-    return
-  fi
-  if ! command -v openssl >/dev/null 2>&1; then
-    echo "OpenSSL is required to generate the direct HTTPS certificate." >&2
-    exit 1
-  fi
-  sudo mkdir -p "$cert_dir"
-  sudo chown "$MCP_RUN_UID:$MCP_RUN_GID" "$cert_dir"
-  sudo chmod 750 "$cert_dir"
-  local host_name
-  host_name="${MCP_PUBLIC_URL#https://}"
-  host_name="${host_name#http://}"
-  host_name="${host_name%%/*}"
-  local san
-  if [[ "$host_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    san="IP:${host_name}"
-  else
-    san="DNS:${host_name}"
-  fi
-  sudo openssl req -x509 -newkey rsa:2048 -nodes \
-    -keyout "$key_file" \
-    -out "$cert_file" \
-    -days 365 \
-    -subj "/CN=${host_name}" \
-    -addext "subjectAltName=${san}" >/dev/null 2>&1
-  secure_tls_cert_permissions "$cert_dir" "$cert_file" "$key_file"
-}
-
-secure_tls_cert_permissions() {
-  local cert_dir="$1"
-  local cert_file="$2"
-  local key_file="$3"
-
-  sudo chown "$MCP_RUN_UID:$MCP_RUN_GID" "$cert_dir" "$cert_file" "$key_file"
-  sudo chmod 750 "$cert_dir"
-  sudo chmod 644 "$cert_file"
-  sudo chmod 640 "$key_file"
-}
-
+# ── Odoo addon ────────────────────────────────────────────────────────
 clone_or_update_repo() {
-  if [ "$SKIP_GIT_CLONE" = "1" ]; then
-    return
-  fi
-  need_cmd git
-  if [ -d "$REPO_DIR/.git" ]; then
-    git -C "$REPO_DIR" pull --ff-only
-  else
-    git clone "$REPO_URL" "$REPO_DIR"
-  fi
+  [ "$SKIP_GIT_CLONE" = "1" ] && return; need_cmd git
+  if [ -d "$REPO_DIR/.git" ]; then git -C "$REPO_DIR" pull --ff-only
+  else git clone "$REPO_URL" "$REPO_DIR"; fi
 }
-
 copy_addon() {
-  local source_dir="$REPO_DIR/odoo_addons/odoo_mcp_connector"
-  local target_dir="$ODOO_ADDONS_DIR/odoo_mcp_connector"
-  if [ ! -d "$source_dir" ]; then
-    echo "Missing add-on source: $source_dir" >&2
-    exit 1
-  fi
-  sudo mkdir -p "$ODOO_ADDONS_DIR"
-  sudo rm -rf "$target_dir"
-  sudo cp -R "$source_dir" "$target_dir"
-  if id odoo >/dev/null 2>&1; then
-    sudo chown -R odoo:odoo "$target_dir"
-  fi
+  local src="$REPO_DIR/odoo_addons/odoo_mcp_connector"
+  local dst="$ODOO_ADDONS_DIR/odoo_mcp_connector"
+  [ -d "$src" ] || { echo "Missing addon: $src" >&2; exit 1; }
+  sudo mkdir -p "$ODOO_ADDONS_DIR"; sudo rm -rf "$dst"; sudo cp -R "$src" "$dst"
+  id odoo >/dev/null 2>&1 && sudo chown -R odoo:odoo "$dst"
 }
-
 ensure_addons_path() {
-  if [ "$SKIP_ODOO_CONFIG_EDIT" = "1" ]; then
-    return
-  fi
-  if [ ! -f "$ODOO_CONFIG" ]; then
-    echo "Odoo config not found at $ODOO_CONFIG; skipping addons_path edit."
-    return
-  fi
-  if grep -q "$ODOO_ADDONS_DIR" "$ODOO_CONFIG"; then
-    return
-  fi
+  [ "$SKIP_ODOO_CONFIG_EDIT" = "1" ] && return
+  [ -f "$ODOO_CONFIG" ] || { echo "Odoo config not found; skipping."; return; }
+  grep -q "$ODOO_ADDONS_DIR" "$ODOO_CONFIG" && return
   sudo cp "$ODOO_CONFIG" "$ODOO_CONFIG.bak.$(date +%Y%m%d%H%M%S)"
   if grep -q '^addons_path[[:space:]]*=' "$ODOO_CONFIG"; then
     sudo sed -i "s#^addons_path[[:space:]]*=.*#&,${ODOO_ADDONS_DIR}#" "$ODOO_CONFIG"
@@ -241,49 +100,14 @@ ensure_addons_path() {
     printf '\naddons_path = %s\n' "$ODOO_ADDONS_DIR" | sudo tee -a "$ODOO_CONFIG" >/dev/null
   fi
 }
-
 restart_odoo() {
-  if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^${ODOO_SERVICE}.service"; then
+  if command -v systemctl >/dev/null 2>&1 \
+     && systemctl list-unit-files 2>/dev/null | grep -q "^${ODOO_SERVICE}.service"; then
     sudo systemctl restart "$ODOO_SERVICE"
-  else
-    echo "Could not restart service '$ODOO_SERVICE'. Restart Odoo manually."
-  fi
+  else echo "Could not restart '$ODOO_SERVICE'. Restart Odoo manually."; fi
 }
 
-write_env() {
-  mkdir -p "$REPO_DIR/deploy/audit"
-  umask 077
-cat > "$REPO_DIR/deploy/.env" <<EOF
-ODOO_URL=$ODOO_URL
-ODOO_DB_NAME=$ODOO_DB_NAME
-ODOO_MCP_CONNECTOR_SECRET=$CONNECTOR_SECRET
-ODOO_MCP_IDENTITY_ISSUER=$IDENTITY_ISSUER
-ODOO_MCP_IDENTITY_AUDIENCE=$IDENTITY_AUDIENCE
-ODOO_MCP_IDENTITY_JWKS_URL=$IDENTITY_JWKS_URL
-ODOO_MCP_AUDIT_LOG=/var/log/odoo-mcp/audit.jsonl
-ODOO_MCP_TRANSPORT=sse
-ODOO_MCP_HOST=0.0.0.0
-ODOO_MCP_PORT=8443
-ODOO_MCP_BIND=$MCP_BIND
-ODOO_MCP_RUN_UID=$MCP_RUN_UID
-ODOO_MCP_RUN_GID=$MCP_RUN_GID
-ODOO_MCP_PUBLIC_URL=$MCP_PUBLIC_URL
-ODOO_MCP_TLS_CERT_FILE=$MCP_TLS_CERT_FILE
-ODOO_MCP_TLS_KEY_FILE=$MCP_TLS_KEY_FILE
-EOF
-}
-
-start_docker() {
-  if [ "$SKIP_DOCKER_START" = "1" ]; then
-    return
-  fi
-  if command -v docker >/dev/null 2>&1; then
-    (cd "$REPO_DIR/deploy" && docker compose up -d --build)
-  else
-    echo "Docker not found. Install Docker or run the MCP server manually."
-  fi
-}
-
+# ── Next-steps banner — Bug 6: no hardcoded :8443 ────────────────────
 print_next_steps() {
   cat <<EOF
 
@@ -292,56 +116,34 @@ Install complete.
 Next steps in Odoo:
   1. Apps -> Update Apps List
   2. Install: Odoo MCP Connector
-  3. Developer mode -> Settings -> Technical -> Parameters -> System Parameters
-  4. Create or update:
-       odoo_mcp_connector.signing_secret = $CONNECTOR_SECRET
+  3. Settings -> Technical -> Parameters -> System Parameters
+  4. Set: odoo_mcp_connector.signing_secret = $CONNECTOR_SECRET
+     $(secret_source_label)
 
-Then validate:
-  cd $REPO_DIR/deploy
-  docker compose logs -f odoo-mcp
+MCP service URL: $MCP_PUBLIC_URL
+Claude Desktop setup: docs/clients/claude-desktop.md
+Logs: cd $REPO_DIR/deploy && docker compose logs -f odoo-mcp
 
-MCP service URL:
-  $MCP_PUBLIC_URL
-
-Google OAuth redirect URI:
-  $MCP_PUBLIC_URL/oauth/callback
-
-If you are using Google Cloud / Google Workspace, register that redirect URI on the OAuth client as a Web application callback URL.
-
-Plain Odoo login:
-  The landing page also offers an Odoo username/password login.
-  If you want that path, keep ODOO_DB_NAME set in deploy/.env or enter it on the login form.
-
-Direct exposure:
-  Docker is configured to bind HTTPS MCP on ${MCP_BIND}:8443.
-  If external curl still fails, open TCP 8443 in the server firewall and cloud security list.
-
-TLS:
-  If existing nginx certs were found, they were copied into deploy/certs.
-  Otherwise a self-signed certificate was generated in deploy/certs.
-  Test it with: curl -k $MCP_PUBLIC_URL
-
-Important:
-  Keep deploy/.env private. It contains the connector signing secret.
+Keep deploy/.env private — it contains the signing secret.
 EOF
 }
 
+# ── main ──────────────────────────────────────────────────────────────
 main() {
-  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    usage
-    exit 0
-  fi
+  [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] && { head -30 "$0"; exit 0; }
 
   prompt_if_empty ODOO_URL "Odoo URL, e.g. https://odoo.example.com"
-  if [ -z "$ODOO_DB_NAME" ]; then
-    read -r -p "Odoo database name (required for plain Odoo login; optional for Google SSO): " ODOO_DB_NAME
-  fi
+  [ -z "$ODOO_DB_NAME" ] && read -r -p "Odoo DB name (optional for Google SSO): " ODOO_DB_NAME
+
+  # Bug 4: skips menu when any IDENTITY_* var is defined (see lib/identity-prompts.sh)
   select_identity_defaults
   prompt_if_empty IDENTITY_ISSUER "OIDC issuer URL"
   prompt_if_empty IDENTITY_JWKS_URL "OIDC JWKS URL"
-  prompt_if_empty IDENTITY_AUDIENCE "OIDC audience / OAuth Client ID"
+  prompt_if_empty IDENTITY_AUDIENCE "OIDC audience"
   detect_public_url
-  prompt_if_empty MCP_PUBLIC_URL "Public MCP URL, e.g. https://mcp.example.com"
+  prompt_if_empty MCP_PUBLIC_URL "Public MCP URL"
+
+  # Bug 5: preserves existing CONNECTOR_SECRET (see lib/secret-mgmt.sh)
   generate_secret
 
   clone_or_update_repo
@@ -349,18 +151,18 @@ main() {
   ensure_addons_path
   restart_odoo
 
-  # Cycle 2.1: branch between direct-TLS and nginx-frontend modes.
-  # nginx mode skips cert generation and writes a loopback-bound .env.
+  # nginx mode: sidecar terminates TLS, uvicorn speaks plain HTTP.
+  # direct mode: uvicorn serves HTTPS with its own cert.
   if [ "$MCP_FRONTEND_MODE" = "nginx" ]; then
     # shellcheck source=scripts/install_nginx_frontend.sh
-    source "$(dirname "$0")/install_nginx_frontend.sh"
+    source "$SCRIPT_DIR/install_nginx_frontend.sh"
     apply_nginx_frontend
   else
     generate_tls_cert
     write_env
+    start_docker
   fi
 
-  start_docker
   print_next_steps
 }
 
