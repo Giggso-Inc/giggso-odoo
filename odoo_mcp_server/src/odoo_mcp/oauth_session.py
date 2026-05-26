@@ -8,7 +8,7 @@ Summary:
     in both cases set an HttpOnly session cookie. This module owns that
     single shared code path so the two login modules stay slim.
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: library (imported by oauth_google.py + oauth_odoo.py)
 """
 
@@ -31,6 +31,7 @@ def build_session_response(
     claims: IdentityClaims,
     session_token: str,
     session_cookie_name: str,
+    flow_id: str = "",
 ) -> Response:
     """Bridge the MCP-client flow (if any) and attach the session cookie.
 
@@ -38,8 +39,15 @@ def build_session_response(
     us, or an HTMLResponse confirmation page otherwise. In both cases the
     HttpOnly session cookie is set so future requests pick up auth via
     SessionInjectorMiddleware.
+
+    flow_id may be supplied explicitly by the caller (Odoo form POSTs it
+    in the request body, not the query string). Falls back to the query
+    param so the Google callback path continues to work unchanged.
     """
-    flow_id = str(request.query_params.get("flow") or "").strip()
+    # Prefer the caller-supplied flow_id; fall back to the query param
+    # (used by the Google OAuth callback which carries state in the URL).
+    if not flow_id:
+        flow_id = str(request.query_params.get("flow") or "").strip()
     if flow_id:
         # An MCP client (e.g. Claude) initiated this OAuth flow through us.
         # Mint a single-use code bound to that client and redirect back.

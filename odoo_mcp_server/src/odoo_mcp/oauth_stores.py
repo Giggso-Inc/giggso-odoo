@@ -6,8 +6,9 @@ Summary:
     handshake: PKCE state, authorization-flow context, and authorization
     codes. All three are in-memory and expire after 600 seconds by
     default. Persistence is deferred to Cycle 3 (Postgres-backed).
+    OAuthClientStore (RFC 7591 DCR) lives in oauth_dcr.py.
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: library (imported by oauth.py + server.py)
 """
 

@@ -30,6 +30,7 @@ from .app import AppServices
 from .bearer_store import BearerConfig, RevokedTokenStore
 from .config import Settings, load_settings
 from .oauth import OAuthCodeStore, OAuthFlowStore, OAuthStateStore, build_oauth_ui_app
+from .oauth_dcr import OAuthClientStore
 from .tools.admin import register_admin_tools
 from .tools.crm import register_crm_tools
 from .tools.projects import register_project_tools
@@ -90,6 +91,9 @@ def run_uvicorn_sse(mcp: FastMCP, settings: Settings) -> None:
     app.state.oauth_state_store = OAuthStateStore()
     app.state.oauth_flow_store = OAuthFlowStore()
     app.state.oauth_code_store = OAuthCodeStore()
+    # DCR client store: persists for process lifetime (in-memory).
+    # Populated by POST /register; consumed by /authorize + /token.
+    app.state.oauth_client_store = OAuthClientStore()
     app.state.google_client_id = google_client_id
     app.state.odoo_url = settings.odoo_url
     app.state.odoo_db_name = settings.odoo_db_name

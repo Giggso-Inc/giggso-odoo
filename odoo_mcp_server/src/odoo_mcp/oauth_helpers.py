@@ -6,7 +6,7 @@ Summary:
     landing-page renderer. Kept in one place so the auth modules can
     import without pulling in the heavyweight Google/Odoo paths.
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: library (imported by oauth_*.py and oauth.py)
 """
 
@@ -56,13 +56,25 @@ def append_query_params(url: str, params: dict[str, str]) -> str:
     return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(merged)))
 
 
-def root_page(request: Request, public_url: str, google_client_id: str | None = None) -> HTMLResponse:
-    """Render the small landing page with the available authorize links."""
-    odoo_url = f"{public_url}/authorize/odoo"
+def root_page(
+    request: Request,
+    public_url: str,
+    google_client_id: str | None = None,
+    flow_id: str = "",
+) -> HTMLResponse:
+    """Render the small landing page with the available authorize links.
+
+    flow_id is forwarded as a query param so /authorize/odoo can pick up
+    the OAuth context after the user chooses their sign-in method. Without
+    it the login form has no way to know which client initiated the flow.
+    """
+    # Carry flow_id into whichever sign-in link the user clicks.
+    flow_suffix = f"?flow={html_escape(flow_id)}" if flow_id else ""
+    odoo_url = f"{public_url}/authorize/odoo{flow_suffix}"
     # Only show the Google link when a client ID is configured; otherwise
     # users would hit a runtime error after clicking.
     google_link = (
-        f'<p><a href="{public_url}/authorize/google">Sign in with Google</a></p>'
+        f'<p><a href="{public_url}/authorize/google{flow_suffix}">Sign in with Google</a></p>'
         if google_client_id
         else ""
     )

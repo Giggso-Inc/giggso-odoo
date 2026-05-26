@@ -8,7 +8,7 @@ Summary:
     IdentityClaims. authenticate_odoo_user() is also imported by
     bearer.py for the headless flow — same code path, same guarantees.
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: library (imported by oauth.py + bearer.py)
 """
 
@@ -60,6 +60,10 @@ async def odoo_login_submit(
     login = str(form.get("login") or "").strip()
     password = str(form.get("password") or "")
     db_name = str(form.get("db") or odoo_db_name or "").strip()
+    # flow_id is a hidden field injected by the landing page when an
+    # OAuth client initiated this authorization. Extract it here before
+    # we call authenticate_odoo_user so it's available for the redirect.
+    flow_id = str(form.get("flow") or "").strip()
     # Validate before touching Odoo — cheap fast-fail.
     if not db_name:
         return JSONResponse(
@@ -79,7 +83,9 @@ async def odoo_login_submit(
     session_token = mint_session_token(
         claims, public_url=public_url, session_secret=session_secret
     )
-    return build_session_response(request, claims, session_token, session_cookie_name)
+    # Pass flow_id explicitly — the form POST carries it in the body,
+    # not the query string, so build_session_response can't find it alone.
+    return build_session_response(request, claims, session_token, session_cookie_name, flow_id)
 
 
 def authenticate_odoo_user(

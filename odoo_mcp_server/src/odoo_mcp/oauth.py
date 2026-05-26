@@ -3,9 +3,11 @@ OAuth app composition — mounts the browser + headless auth routes.
 
 Summary:
     This file is the thin assembly layer. All real logic lives in the
-    six sibling modules:
+    sibling modules:
 
       oauth_stores.py      OAuthState/Flow/Code dataclasses + stores
+      oauth_dcr.py         OAuthClient, OAuthClientStore, /register handler
+      oauth_authorize.py   /authorize GET — validates OAuth params, stashes flow
       oauth_middleware.py  SessionInjectorMiddleware (cookie → bearer)
       oauth_helpers.py     base64url, html_escape, urlencode helpers,
                            root landing page
@@ -18,10 +20,9 @@ Summary:
     every auth-touching path is reachable from a single Starlette app.
 
     Names re-exported at the bottom preserve back-compat for any
-    external imports (server.py used to pull stores and the middleware
-    straight from this module).
+    external imports (server.py imports stores and middleware from here).
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: library (imported by server.py)
 """
 
@@ -34,8 +35,9 @@ from starlette.routing import Mount, Route
 from starlette.types import ASGIApp
 
 from .auth import IdentityTokenVerifier
+from .oauth_authorize import authorize
+from .oauth_dcr import register_client
 from .oauth_google import authorize_google, callback_google
-from .oauth_helpers import root_page
 from .oauth_middleware import SessionInjectorMiddleware
 from .oauth_odoo import authenticate_odoo_user, odoo_login_form, odoo_login_submit
 from .oauth_stores import OAuthCodeStore, OAuthFlowStore, OAuthStateStore
@@ -85,12 +87,12 @@ def build_oauth_ui_app(
         "/authorize",
         "/authorize/google",
         "/authorize/odoo",
+        "/register",
         "/token",
         "/oauth/callback",
         "/.well-known/oauth-protected-resource",
         "/.well-known/oauth-protected-resource/sse",
         "/.well-known/oauth-authorization-server",
-        # Headless bearer flow (Claude Desktop, chatbots, scripts).
         "/auth/issue-token",
         "/auth/revoke",
         "/auth/whoami",
@@ -98,8 +100,8 @@ def build_oauth_ui_app(
 
     # Thin route adapters: each one binds the configured values into the
     # underlying handler so the handler stays pure-functional.
-    async def authorize_route(request: Request) -> HTMLResponse:
-        return root_page(request, public_url, google_client_id)
+    async def authorize_route(request: Request) -> Response:
+        return await authorize(request, public_url, google_client_id)
 
     async def authorize_google_route(request: Request) -> Response:
         return authorize_google(request, public_url, google_client_id)
@@ -133,7 +135,6 @@ def build_oauth_ui_app(
 
     app = Starlette(
         routes=[
-            # Browser OAuth flow.
             Route("/", endpoint=authorize_route, methods=["GET"]),
             Route("/authorize", endpoint=authorize_route, methods=["GET"]),
             Route("/authorize/google", endpoint=authorize_google_route, methods=["GET"]),
@@ -141,6 +142,8 @@ def build_oauth_ui_app(
             Route("/authorize/odoo", endpoint=odoo_login_submit_route, methods=["POST"]),
             Route("/token", endpoint=oauth_token_route, methods=["POST"]),
             Route("/oauth/callback", endpoint=callback_google_route, methods=["GET"]),
+            # RFC 7591 Dynamic Client Registration.
+            Route("/register", endpoint=register_client, methods=["POST"]),
             # OAuth discovery metadata.
             Route("/.well-known/oauth-protected-resource", endpoint=oauth_protected_resource_route, methods=["GET"]),
             Route("/.well-known/oauth-protected-resource/sse", endpoint=oauth_protected_resource_route, methods=["GET"]),

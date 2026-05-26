@@ -9,7 +9,7 @@ Summary:
       - oauth_protected_resource(): /.well-known/oauth-protected-resource
     Kept together because they all share the same secret + claim shape.
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: library (imported by oauth.py)
 """
 
@@ -60,6 +60,9 @@ def oauth_authorization_server(request: Request, public_url: str) -> JSONRespons
         "issuer": public_url,
         "authorization_endpoint": f"{public_url}/authorize",
         "token_endpoint": f"{public_url}/token",
+        # registration_endpoint advertises RFC 7591 DCR so Claude Desktop
+        # can self-register on first connect without any server-side config.
+        "registration_endpoint": f"{public_url}/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
