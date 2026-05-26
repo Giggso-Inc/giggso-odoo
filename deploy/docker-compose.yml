@@ -5,10 +5,14 @@
 #   Always brings up the `odoo-mcp` FastMCP container. When the install
 #   script runs in MCP_FRONTEND_MODE=nginx, the `nginx` sidecar service
 #   is also brought up — it terminates public TLS on host port
-#   ${MCP_NGINX_HOST_PORT:-8443} and proxies to odoo-mcp over the
+#   ${MCP_NGINX_HOST_PORT:-9443} and proxies to odoo-mcp over the
 #   private docker network. Sidecar is opt-in via profile `nginx`.
 #
-# Version: 0.2.0 (Cycle 2.2 — sidecar nginx)
+# Version: 0.3.0 (Cycle 2.3 — sidecar nginx, expose-only MCP)
+#
+# ADR-002: host port 9443 -> sidecar :443 -> odoo-mcp:8443 over
+# docker network. In nginx mode the MCP container does NOT publish a
+# host port (expose only), eliminating port-collision class entirely.
 # ─────────────────────────────────────────────────────────────────────
 
 services:
@@ -21,12 +25,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    # In direct mode this exposes 0.0.0.0:8443. In nginx-sidecar mode
-    # ODOO_MCP_BIND is set to 127.0.0.1 by the installer, so the public
-    # internet cannot reach 8443 — only the nginx sidecar (via the
-    # docker network using the service name `odoo-mcp`) and localhost.
-    ports:
-      - "${ODOO_MCP_BIND:-0.0.0.0}:8443:8443"
+    # In direct mode the installer adds a ports: override via
+    # docker-compose.override.yml. In nginx-sidecar mode we deliberately
+    # do NOT publish a host port — the sidecar reaches uvicorn via the
+    # docker network at http://odoo-mcp:8443. expose is in-network only.
+    expose:
+      - "8443"
     volumes:
       - ./audit:/var/log/odoo-mcp:z
       - ./certs:/run/odoo-mcp/certs:ro,z
@@ -42,8 +46,10 @@ services:
     profiles: ["nginx"]
     depends_on:
       - odoo-mcp
+    # Host 9443 -> sidecar 443 (see ADR-002). 8443 collided with the
+    # legacy MCP host publish; 9443 is conflict-free and easy to remember.
     ports:
-      - "${MCP_NGINX_HOST_PORT:-8443}:443"
+      - "${MCP_NGINX_HOST_PORT:-9443}:443"
     volumes:
       # Conf snippet written by install_nginx_frontend.sh
       - ./nginx/conf.d:/etc/nginx/conf.d:ro

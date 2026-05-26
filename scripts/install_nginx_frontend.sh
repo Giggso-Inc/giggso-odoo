@@ -6,10 +6,10 @@
 #   Sourced by install_odoo_mcp.sh when MCP_FRONTEND_MODE=nginx.
 #   Stands up a SIDECAR nginx container inside deploy/docker-compose.yml
 #   (profile `nginx`) that terminates TLS on a configurable host port
-#   (default 8443) and proxies to the odoo-mcp service over the docker
+#   (default 9443) and proxies to the odoo-mcp service over the docker
 #   network. Does NOT touch any pre-existing host-level nginx.
 #
-# Version: 0.2.0 (Cycle 2.2 — sidecar mode)
+# Version: 0.3.0 (Cycle 2.3 — sidecar mode, expose-only MCP, port 9443)
 # Execution context: sourced by install_odoo_mcp.sh
 # ─────────────────────────────────────────────────────────────────────
 
@@ -24,9 +24,10 @@ MCP_NGINX_CERT_DIR="${MCP_NGINX_CERT_DIR:-/home/opc/gg-odoo-app/domaincert}"
 MCP_NGINX_CERT_FILE="${MCP_NGINX_CERT_FILE:-nginx.crt}"
 MCP_NGINX_KEY_FILE="${MCP_NGINX_KEY_FILE:-nginx.key}"
 
-# Public host port. Existing nginx already owns :443, so default to
-# 8443. Public URL must then be https://<host>:8443/mcp.
-MCP_NGINX_HOST_PORT="${MCP_NGINX_HOST_PORT:-8443}"
+# Public host port. Existing host nginx owns :443 and previous MCP
+# direct-mode publish owned :8443, so default to 9443 (see ADR-002).
+# Public URL must then be https://<host>:9443/mcp.
+MCP_NGINX_HOST_PORT="${MCP_NGINX_HOST_PORT:-9443}"
 
 # Path prefix the sidecar serves — paired with MCP_PUBLIC_URL ending /mcp.
 MCP_NGINX_PATH_PREFIX="${MCP_NGINX_PATH_PREFIX:-/mcp}"
@@ -68,10 +69,11 @@ ODOO_MCP_IDENTITY_AUDIENCE=$IDENTITY_AUDIENCE
 ODOO_MCP_IDENTITY_JWKS_URL=$IDENTITY_JWKS_URL
 
 # ── Transport + loopback binding (nginx sidecar fronts public TLS) ──
+# uvicorn binds inside the container only. Compose uses `expose`
+# instead of `ports` in nginx mode so no host port is published.
 ODOO_MCP_TRANSPORT=sse
 ODOO_MCP_HOST=0.0.0.0
 ODOO_MCP_PORT=8443
-ODOO_MCP_BIND=127.0.0.1
 ODOO_MCP_RUN_UID=$MCP_RUN_UID
 ODOO_MCP_RUN_GID=$MCP_RUN_GID
 
