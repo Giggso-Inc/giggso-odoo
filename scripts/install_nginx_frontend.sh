@@ -93,6 +93,37 @@ server {
     ssl_ciphers         HIGH:!aNULL:!MD5;
     ssl_session_cache   shared:SSL:10m;
 
+    # Root-level OAuth discovery + SSE for Claude Desktop and other
+    # MCP 2025-03 clients that probe /.well-known and /sse at the
+    # host root (per RFC 8414 the discovery doc must live at issuer
+    # root, NOT under the /mcp mount). Both blocks proxy through to
+    # the same upstream as /mcp/* so the MCP app serves them.
+    location = /.well-known/oauth-authorization-server {
+        proxy_pass         http://odoo-mcp:8443/.well-known/oauth-authorization-server;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Forwarded-Proto https;
+    }
+    location = /.well-known/oauth-protected-resource {
+        proxy_pass         http://odoo-mcp:8443/.well-known/oauth-protected-resource;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Forwarded-Proto https;
+    }
+    location = /sse {
+        proxy_pass         http://odoo-mcp:8443/sse;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_set_header   Connection "";
+    }
+
     # Trailing slash strips /mcp prefix; upstream sees /auth/whoami etc.
     location ${MCP_NGINX_PATH_PREFIX}/ {
         proxy_pass         http://odoo-mcp:8443/;
