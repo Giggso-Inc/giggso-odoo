@@ -1,4 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────
+# deploy/docker-compose.yml — Odoo MCP server (+ optional nginx sidecar)
+#
+# Summary:
+#   Always brings up the `odoo-mcp` FastMCP container. When the install
+#   script runs in MCP_FRONTEND_MODE=nginx, the `nginx` sidecar service
+#   is also brought up — it terminates public TLS on host port
+#   ${MCP_NGINX_HOST_PORT:-8443} and proxies to odoo-mcp over the
+#   private docker network. Sidecar is opt-in via profile `nginx`.
+#
+# Version: 0.2.0 (Cycle 2.2 — sidecar nginx)
+# ─────────────────────────────────────────────────────────────────────
+
 services:
+
+  # ── FastMCP server (bearer auth, SSE transport, audit log) ─────────
   odoo-mcp:
     build:
       context: ../odoo_mcp_server
@@ -6,8 +21,31 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # In direct mode this exposes 0.0.0.0:8443. In nginx-sidecar mode
+    # ODOO_MCP_BIND is set to 127.0.0.1 by the installer, so the public
+    # internet cannot reach 8443 — only the nginx sidecar (via the
+    # docker network using the service name `odoo-mcp`) and localhost.
     ports:
       - "${ODOO_MCP_BIND:-0.0.0.0}:8443:8443"
     volumes:
       - ./audit:/var/log/odoo-mcp:z
       - ./certs:/run/odoo-mcp/certs:ro,z
+
+  # ── TLS frontend (only when started with --profile nginx) ──────────
+  # Brought up by install_nginx_frontend.sh via:
+  #   docker compose --profile nginx up -d
+  # Binds host port ${MCP_NGINX_HOST_PORT:-8443}:443 so it does NOT
+  # collide with any existing nginx already owning host :443.
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    profiles: ["nginx"]
+    depends_on:
+      - odoo-mcp
+    ports:
+      - "${MCP_NGINX_HOST_PORT:-8443}:443"
+    volumes:
+      # Conf snippet written by install_nginx_frontend.sh
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # Reuse existing host certs (e.g. /home/opc/gg-odoo-app/domaincert)
+      - ${MCP_NGINX_CERT_DIR:-./nginx/certs}:/etc/nginx/certs:ro

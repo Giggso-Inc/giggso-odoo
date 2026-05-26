@@ -21,4 +21,6 @@ deploy/.env
 deploy/secrets/
 deploy/audit/
 deploy/certs/
+deploy/nginx/conf.d/
+deploy/nginx/certs/
 plugins/
