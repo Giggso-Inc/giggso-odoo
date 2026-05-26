@@ -4,13 +4,17 @@ Odoo MCP server entry point.
 Summary:
     Builds the FastMCP server, registers tool modules (admin, crm,
     projects), and either runs the stdio transport directly or hands
-    off to run_https_sse() which mounts the OAuth + headless-bearer
-    Starlette app via build_oauth_ui_app().
+    off to run_uvicorn_sse() which mounts the OAuth + headless-bearer
+    Starlette app via build_oauth_ui_app(). TLS is optional — when
+    cert/key paths are empty, a sidecar (nginx) terminates TLS.
 
-Version: 0.2.0
+Version: 0.3.0
 Execution context: process entry point (CLI `python -m odoo_mcp.server`)
 
 Changelog:
+    0.3.0 (Cycle 2.3): decouple bearer/OAuth-UI app from TLS settings.
+        Sidecar-terminated TLS deployments (nginx in front of plain
+        uvicorn) now also serve /auth/issue-token, /auth/whoami, etc.
     0.2.0 (Cycle 2.1): attach bearer_config + revoked_token_store to
         app.state; share one IdentityTokenVerifier across both flows.
     0.1.0:             original cookie-only OAuth wiring.
@@ -56,16 +60,17 @@ def build_server() -> FastMCP:
 def main() -> None:
     settings = load_settings()
     mcp = build_server()
+    # For HTTP transports we always go through uvicorn so the full
+    # OAuth-UI + bearer Starlette app is mounted. TLS is optional —
+    # when cert files are empty the sidecar (nginx) terminates TLS
+    # in front of plain uvicorn.
     if settings.transport in {"sse", "streamable-http"}:
-        if settings.tls_cert_file and settings.tls_key_file:
-            run_https_sse(mcp, settings)
-            return
-        mcp.run(transport="sse")
+        run_uvicorn_sse(mcp, settings)
         return
     mcp.run()
 
 
-def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
+def run_uvicorn_sse(mcp: FastMCP, settings: Settings) -> None:
     google_client_id = settings.google_oauth_client_id
     resource_url = f"{settings.public_url}/sse"
     # Build the verifier once so the same instance backs both the cookie
@@ -100,13 +105,13 @@ def run_https_sse(mcp: FastMCP, settings: Settings) -> None:
         verifier=identity_verifier,
     )
     app.state.revoked_token_store = RevokedTokenStore()
-    uvicorn.run(
-        app,
-        host=settings.host,
-        port=settings.port,
-        ssl_certfile=str(settings.tls_cert_file),
-        ssl_keyfile=str(settings.tls_key_file),
-    )
+    # TLS is only enabled when BOTH cert + key are configured. Empty
+    # values (the sidecar-frontend path) start uvicorn on plain HTTP.
+    uvicorn_kwargs = {"host": settings.host, "port": settings.port}
+    if settings.tls_cert_file and settings.tls_key_file:
+        uvicorn_kwargs["ssl_certfile"] = str(settings.tls_cert_file)
+        uvicorn_kwargs["ssl_keyfile"] = str(settings.tls_key_file)
+    uvicorn.run(app, **uvicorn_kwargs)
 
 
 if __name__ == "__main__":
