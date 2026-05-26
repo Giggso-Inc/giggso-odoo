@@ -1,41 +1,64 @@
 # Get-OdooMcpToken.ps1
 #
 # Summary:
-#   Mints a 90-day Odoo MCP bearer token for Claude Desktop connector setup.
-#   For Giggso internal team — Windows users.
+#   One-stop Claude Desktop setup for Giggso Odoo MCP (Windows).
+#   Mints a 90-day bearer token AND builds the full mcp-remote command
+#   the user pastes into Claude Desktop's custom MCP server "command" field.
 #
 # What it does:
-#   1. Prompts for Odoo email + API key
-#   2. POSTs to https://odoo.giggso.com:9443/mcp/auth/issue-token
-#   3. Copies the JWT bearer token to the clipboard
-#   4. User pastes the token into Claude Desktop when adding the connector
+#   1. Checks Node.js is installed (Claude Desktop's remote-MCP UI doesn't
+#      accept bearer headers, so we wrap the server in `mcp-remote`)
+#   2. Prompts for Odoo email + API key
+#   3. POSTs to /mcp/auth/issue-token, gets a 90-day JWT
+#   4. Builds the full npx mcp-remote command with the token baked in
+#   5. Copies that COMMAND (not the raw token) to the clipboard
+#   6. User pastes into Claude Desktop -> done
 #
 # Usage:
 #   Right-click the file -> Run with PowerShell
-#   (or from terminal: powershell -ExecutionPolicy Bypass -File .\Get-OdooMcpToken.ps1)
 #
-# Prereqs (one-time, done in Odoo web UI):
-#   Odoo -> Profile (top right) -> My Profile -> Account Security tab
-#       -> "New API Key" -> name it "Claude Desktop" -> copy the 40-char string
+# Prereqs:
+#   - Node.js installed (https://nodejs.org -- LTS installer is fine)
+#   - An Odoo API key (Odoo -> Profile -> Account Security -> New API Key)
 #
-# Version: 0.1.0
+# Version: 0.2.0
 # Execution context: Windows PowerShell 5.1+ or PowerShell 7+
 
-# Hardcoded for the Giggso internal MCP deployment. Update if the host
-# or database name ever changes — both values are environment-specific
-# and don't belong in user input.
-$McpHost  = "https://odoo.giggso.com:9443"
-$Database = "gg-odoo-db"
+$McpHost   = "https://odoo.giggso.com:9443"
+$McpSseUrl = "$McpHost/mcp/sse"
+$Database  = "gg-odoo-db"
 
 Write-Host ""
 Write-Host "===========================================" -ForegroundColor Cyan
-Write-Host "  Giggso Odoo MCP — Claude Desktop Token" -ForegroundColor Cyan
+Write-Host "  Giggso Odoo MCP - Claude Desktop Setup" -ForegroundColor Cyan
 Write-Host "===========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Read-Host prompts inline; -AsSecureString would hide the key but then
-# we can't put it on the clipboard without an extra conversion step.
-# This script runs locally on the user's own laptop so plain prompt is fine.
+# ── Step 1: Node check ──────────────────────────────────────────────────
+# mcp-remote is an npm package run via npx; without Node nothing works.
+# Better to fail here with a clear message than to hand the user a command
+# that errors inside Claude Desktop.
+$nodeVersion = $null
+try {
+    $nodeVersion = (node --version) 2>$null
+} catch { }
+
+if (-not $nodeVersion) {
+    Write-Host "Node.js is required but not installed." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Install it once:" -ForegroundColor Yellow
+    Write-Host "  1. Open https://nodejs.org"
+    Write-Host "  2. Download the LTS installer (left button)"
+    Write-Host "  3. Run the installer (Next -> Next -> Install)"
+    Write-Host "  4. Close PowerShell and re-run this script"
+    Write-Host ""
+    Read-Host "Press Enter to close"
+    exit 1
+}
+Write-Host "Node.js detected: $nodeVersion" -ForegroundColor Green
+Write-Host ""
+
+# ── Step 2: Credentials ─────────────────────────────────────────────────
 $email  = Read-Host "Your Odoo email (e.g. you@giggso.com)"
 $apikey = Read-Host "Your Odoo API key (40 chars, from Account Security)"
 
@@ -46,6 +69,7 @@ if ([string]::IsNullOrWhiteSpace($email) -or [string]::IsNullOrWhiteSpace($apike
     exit 1
 }
 
+# ── Step 3: Mint token ──────────────────────────────────────────────────
 # JSON body matches the /auth/issue-token contract in bearer.py.
 $body = @{
     login    = $email
@@ -69,28 +93,32 @@ try {
         throw "Server returned no token field."
     }
 
-    # Set-Clipboard is built into PowerShell 5+; no module install needed.
-    Set-Clipboard -Value $token
+    # ── Step 4: Build the mcp-remote command ────────────────────────────
+    # Claude Desktop's remote-MCP UI has no bearer field, so we wrap the
+    # SSE endpoint with mcp-remote (an official MCP shim that injects the
+    # Authorization header on behalf of the client).
+    $command = "npx -y mcp-remote $McpSseUrl --header `"Authorization:Bearer $token`""
+
+    Set-Clipboard -Value $command
 
     Write-Host ""
-    Write-Host "SUCCESS — token copied to clipboard." -ForegroundColor Green
+    Write-Host "SUCCESS - command copied to clipboard." -ForegroundColor Green
     Write-Host ""
     Write-Host "Token preview: $($token.Substring(0,20))...$($token.Substring($token.Length-10))"
     Write-Host "Valid for:     90 days"
     Write-Host ""
     Write-Host "NEXT STEPS:" -ForegroundColor Cyan
     Write-Host "  1. Open Claude Desktop"
-    Write-Host "  2. Settings -> Connectors -> Add custom connector"
-    Write-Host "  3. Follow the setup instructions emailed by IT"
-    Write-Host "     (paste the token when prompted — it's already in your clipboard)"
+    Write-Host "  2. Settings -> Developer -> Edit Config (or Add MCP Server)"
+    Write-Host "  3. Choose 'command' / local server (NOT remote URL)"
+    Write-Host "  4. Paste the command into the Command field (Ctrl+V)"
+    Write-Host "  5. Name it: giggso-odoo"
+    Write-Host "  6. Save and restart Claude Desktop"
     Write-Host ""
 
 } catch {
-    # Friendly error messages mapped to the actual server responses.
-    # 401 = wrong email/api-key. 5xx = server problem. Anything else =
-    # network/DNS/firewall — most common in remote-worker setups.
     Write-Host ""
-    Write-Host "FAILED — $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "FAILED - $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
     Write-Host "Troubleshooting:" -ForegroundColor Yellow
     Write-Host "  - 401 Unauthorized: check email spelling and re-copy the API key"
