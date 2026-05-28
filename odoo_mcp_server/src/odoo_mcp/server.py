@@ -8,10 +8,14 @@ Summary:
     Starlette app via build_oauth_ui_app(). TLS is optional — when
     cert/key paths are empty, a sidecar (nginx) terminates TLS.
 
-Version: 0.4.0
+Version: 0.4.1
 Execution context: process entry point (CLI `python -m odoo_mcp.server`)
 
 Changelog:
+    0.4.1 (Cycle 2.4): override FastMCP streamable_http_path default
+        from `/mcp` to `/` so the streamable-http endpoint lives at
+        the root URL — marketplace clients configure with bare base
+        URL only.
     0.4.0 (Cycle 2.4): pick MCP ASGI app based on transport setting.
         When ODOO_MCP_TRANSPORT=streamable-http, mount
         mcp.streamable_http_app() at root so marketplace clients can
@@ -50,6 +54,10 @@ def build_server() -> FastMCP:
         json_response=True,
         host=settings.host,
         port=settings.port,
+        # Mount streamable-http at root (`/`) instead of FastMCP's
+        # default `/mcp` so marketplace remote-MCP clients can connect
+        # using the bare base URL. SSE path retains its default `/sse`.
+        streamable_http_path="/",
         token_verifier=services.identity,
         auth=AuthSettings(
             issuer_url=settings.identity_issuer or settings.public_url,
