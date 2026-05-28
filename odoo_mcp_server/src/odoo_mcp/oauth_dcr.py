@@ -74,21 +74,44 @@ class OAuthClientStore:
 def _is_allowed_redirect_uri(uri: str) -> bool:
     """Validate a redirect URI for a public DCR client.
 
-    Permissive by design: Claude Desktop registers a random localhost port
-    each time it starts, so we cannot validate against a fixed allowlist.
+    Permissive by design: every MCP client uses a different callback URL.
     We accept:
-      - http://localhost:* (Claude Desktop callback on any local port)
-      - http://127.0.0.1:* (same, numeric form)
-      - claude-desktop://* (Claude's custom URI scheme on some platforms)
-    We reject everything else (e.g. remote HTTPS redirect URIs would allow
-    auth code interception by a remote party).
+      - http://localhost:*           (Claude Desktop loopback, any local port)
+      - http://127.0.0.1:*           (same, numeric form)
+      - claude-desktop://*           (Claude Desktop custom URI scheme)
+      - https://claude.ai/*          (Claude.ai cloud connector callback)
+      - https://*.anthropic.com/*    (other Anthropic-owned domains)
+      - https://cursor.com/*         (Cursor cloud connector callback)
+      - https://*.cursor.sh/*        (Cursor's preview/dev domains)
+      - https://chat.openai.com/*    (ChatGPT custom GPTs callback)
+      - https://chatgpt.com/*        (newer ChatGPT domain)
+    We reject anything else — a random remote HTTPS URI would let a
+    third party intercept auth codes.
     """
-    # Allow localhost variants for the standard OAuth loopback flow.
+    # Loopback OAuth flow — standard for desktop apps.
     if uri.startswith("http://localhost:") or uri.startswith("http://127.0.0.1:"):
         return True
-    # Allow the Claude Desktop custom scheme (app-owned, not interceptable).
+    # Custom URI schemes for installed apps (app-owned, not interceptable).
     if uri.startswith("claude-desktop://"):
         return True
+    # Known cloud MCP clients — callback URLs published by the vendor.
+    # We allow-list specific domains, not arbitrary HTTPS, so a misregistered
+    # client can't redirect codes to attacker-controlled hosts.
+    cloud_prefixes = (
+        "https://claude.ai/",
+        "https://chat.openai.com/",
+        "https://chatgpt.com/",
+        "https://cursor.com/",
+    )
+    if uri.startswith(cloud_prefixes):
+        return True
+    # Wildcard subdomain match for known vendors.
+    from urllib.parse import urlparse
+    parsed = urlparse(uri)
+    if parsed.scheme == "https" and parsed.hostname:
+        host = parsed.hostname.lower()
+        if host.endswith(".anthropic.com") or host.endswith(".cursor.sh"):
+            return True
     return False
 
 
