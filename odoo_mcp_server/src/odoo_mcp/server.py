@@ -8,10 +8,15 @@ Summary:
     Starlette app via build_oauth_ui_app(). TLS is optional — when
     cert/key paths are empty, a sidecar (nginx) terminates TLS.
 
-Version: 0.3.0
+Version: 0.4.0
 Execution context: process entry point (CLI `python -m odoo_mcp.server`)
 
 Changelog:
+    0.4.0 (Cycle 2.4): pick MCP ASGI app based on transport setting.
+        When ODOO_MCP_TRANSPORT=streamable-http, mount
+        mcp.streamable_http_app() at root so marketplace clients can
+        configure with just the base URL (no /sse suffix). SSE path
+        retained for backwards compatibility.
     0.3.0 (Cycle 2.3): decouple bearer/OAuth-UI app from TLS settings.
         Sidecar-terminated TLS deployments (nginx in front of plain
         uvicorn) now also serve /auth/issue-token, /auth/whoami, etc.
@@ -73,13 +78,21 @@ def main() -> None:
 
 def run_uvicorn_sse(mcp: FastMCP, settings: Settings) -> None:
     google_client_id = settings.google_oauth_client_id
-    resource_url = f"{settings.public_url}/sse"
+    # Streamable-http mounts at root (just `/`), SSE mounts at `/sse`.
+    # Resource URL is what gets advertised as the OAuth resource
+    # indicator — must match the path Claude/marketplace clients hit.
+    if settings.transport == "streamable-http":
+        mcp_asgi_app = mcp.streamable_http_app()
+        resource_url = settings.public_url
+    else:
+        mcp_asgi_app = mcp.sse_app()
+        resource_url = f"{settings.public_url}/sse"
     # Build the verifier once so the same instance backs both the cookie
     # flow and the headless bearer flow — keeps signature verification
     # consistent across all entry points.
     identity_verifier = AppServices.build(settings).identity
     app = build_oauth_ui_app(
-        mcp_app=mcp.sse_app(),
+        mcp_app=mcp_asgi_app,
         verifier=identity_verifier,
         odoo_url=settings.odoo_url,
         odoo_db_name=settings.odoo_db_name,
