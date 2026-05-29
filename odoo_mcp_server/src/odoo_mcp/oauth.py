@@ -139,7 +139,12 @@ def build_oauth_ui_app(
     # mounted MCP app's lifespan onto the outer Starlette app here.
     # Without this, every POST to the MCP endpoint raises:
     #     RuntimeError: Task group is not initialized. Make sure to use run().
-    mcp_lifespan = getattr(mcp_app, "lifespan", None)
+    # NOTE: Starlette stores the lifespan on `router.lifespan_context`,
+    # not on the app itself. Reading `mcp_app.lifespan` returns None
+    # (silent miss) which is what bit the first attempt.
+    mcp_lifespan = getattr(
+        getattr(mcp_app, "router", None), "lifespan_context", None
+    )
     app = Starlette(
         lifespan=mcp_lifespan,
         routes=[
