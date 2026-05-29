@@ -89,3 +89,18 @@ Three ADRs covering bearer auth, nginx sidecar, and the internal-first roadmap a
 
 See [ROADMAP.md](ROADMAP.md) for the next three delivery cycles (token self-service,
 group-based permissions, Google Workspace identity integration).
+
+---
+
+## Documentation
+
+Five top-level guides — one per role. Read the one that matches what
+you're trying to do.
+
+| Doc | For | What's in it |
+| --- | --- | --- |
+| [README-DEPLOY.md](README-DEPLOY.md) | Operators | End-to-end setup: Odoo addon install, MCP server build, smoke tests, rollback |
+| [README-DEBUG.md](README-DEBUG.md) | Operators | Failure playbook — every issue we hit (M1–M5 MCP, O1–O6 Odoo) with cause/fix/prevention |
+| [README-USER.md](README-USER.md) | Internal users | Connect Claude.ai, first prompts, troubleshooting, privacy |
+| [README-CRM.md](README-CRM.md) | Internal users | The 6 CRM tools — params, prompts, audit fields |
+| [README-PROJECT.md](README-PROJECT.md) | Internal users | The 6 Project tools — params, prompts, audit fields |
