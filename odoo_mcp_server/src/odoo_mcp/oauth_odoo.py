@@ -77,6 +77,13 @@ async def odoo_login_submit(
     # authenticate_odoo_user() raises AuthError on bad credentials.
     # We let it propagate to the bridged-flow path below; the shared
     # build_session_response handles MCP-client bridge vs. plain page.
+    # Temporary debug print — surfaces what the form actually submitted
+    # (NEVER the password). Remove once OAuth login is stable.
+    print(
+        f"[oauth_odoo] login attempt db={db_name!r} login={login!r} "
+        f"pw_len={len(password)} pw_strip_len={len(password.strip())}",
+        flush=True,
+    )
     claims = authenticate_odoo_user(
         odoo_url=odoo_url, db_name=db_name, login=login, password=password
     )
