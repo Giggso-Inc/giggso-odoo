@@ -104,3 +104,9 @@ you're trying to do.
 | [README-USER.md](README-USER.md) | Internal users | Connect Claude.ai, first prompts, troubleshooting, privacy |
 | [README-CRM.md](README-CRM.md) | Internal users | The 6 CRM tools — params, prompts, audit fields |
 | [README-PROJECT.md](README-PROJECT.md) | Internal users | The 6 Project tools — params, prompts, audit fields |
+| [README-RECRUIT.md](README-RECRUIT.md) | Internal users | The 6 Recruitment tools (jobs, applicants, stages) |
+| [README-HR.md](README-HR.md) | Internal users | The 3 HR / Employee read tools |
+| [README-ATTENDANCE.md](README-ATTENDANCE.md) | Internal users | The 4 Attendance tools (check-in / out / list / today) |
+| [README-EXPENSE.md](README-EXPENSE.md) | Internal users | The 4 Expense tools (list / create / sheets / submit) |
+| [README-TIMESHEET.md](README-TIMESHEET.md) | Internal users | The 3 Timesheet tools (list / create / weekly summary) |
+| [README-SALE.md](README-SALE.md) | Internal users | The 5 Sales tools (orders, quotations, confirm, lines) |

@@ -41,8 +41,14 @@ from .config import Settings, load_settings
 from .oauth import OAuthCodeStore, OAuthFlowStore, OAuthStateStore, build_oauth_ui_app
 from .oauth_dcr import OAuthClientStore
 from .tools.admin import register_admin_tools
+from .tools.attendance import register_attendance_tools
 from .tools.crm import register_crm_tools
+from .tools.expense import register_expense_tools
+from .tools.hr import register_hr_tools
 from .tools.projects import register_project_tools
+from .tools.recruit import register_recruit_tools
+from .tools.sale import register_sale_tools
+from .tools.timesheet import register_timesheet_tools
 
 
 def build_server() -> FastMCP:
@@ -65,9 +71,16 @@ def build_server() -> FastMCP:
             required_scopes=[],
         ),
     )
+    # Register all tool groups; each is independent and registers its own @mcp.tool() handlers
     register_admin_tools(mcp, services)
     register_crm_tools(mcp, services)
     register_project_tools(mcp, services)
+    register_recruit_tools(mcp, services)
+    register_hr_tools(mcp, services)
+    register_attendance_tools(mcp, services)
+    register_expense_tools(mcp, services)
+    register_timesheet_tools(mcp, services)
+    register_sale_tools(mcp, services)
     return mcp
 
 
