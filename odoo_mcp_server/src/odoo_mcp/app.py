@@ -21,6 +21,13 @@ class AppServices:
             settings=settings,
             identity=IdentityTokenVerifier(
                 secret=settings.identity_token_secret,
+                # Session tokens (typ=odoo-mcp-session) are minted by
+                # oauth_token.mint_session_token() using the connector
+                # secret. The verifier must use the SAME secret here or
+                # MCP rejects every access token with 401. Without this,
+                # session_secret falls back to `secret` and signatures
+                # never match.
+                session_secret=settings.odoo_connector_secret,
                 issuer=settings.identity_issuer,
                 audience=settings.identity_audience,
                 jwks_url=settings.identity_jwks_url,
