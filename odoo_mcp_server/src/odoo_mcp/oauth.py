@@ -133,7 +133,15 @@ def build_oauth_ui_app(
     async def oauth_token_route(request: Request) -> JSONResponse:
         return await oauth_token(request, public_url, session_secret)
 
+    # FastMCP's streamable_http_app() requires its lifespan to run so
+    # the StreamableHTTPSessionManager's task group is initialized.
+    # Mounted apps do NOT inherit lifespan events, so we forward the
+    # mounted MCP app's lifespan onto the outer Starlette app here.
+    # Without this, every POST to the MCP endpoint raises:
+    #     RuntimeError: Task group is not initialized. Make sure to use run().
+    mcp_lifespan = getattr(mcp_app, "lifespan", None)
     app = Starlette(
+        lifespan=mcp_lifespan,
         routes=[
             Route("/", endpoint=authorize_route, methods=["GET"]),
             Route("/authorize", endpoint=authorize_route, methods=["GET"]),
