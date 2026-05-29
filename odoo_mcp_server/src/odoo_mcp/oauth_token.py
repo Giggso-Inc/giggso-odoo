@@ -143,11 +143,17 @@ async def oauth_token(request: Request, public_url: str, session_secret: str) ->
     access_token = mint_session_token(
         code_item.claims, public_url=public_url, session_secret=session_secret
     )
-    return JSONResponse(
-        {
-            "access_token": access_token,
-            "token_type": "Bearer",
-            "expires_in": SESSION_TOKEN_TTL_SECONDS,
-            "scope": " ".join(code_item.claims.scopes),
-        }
-    )
+    response_body: dict[str, object] = {
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": SESSION_TOKEN_TTL_SECONDS,
+        "scope": " ".join(code_item.claims.scopes),
+    }
+    # OIDC: when the granted scopes include `openid`, the spec REQUIRES
+    # an id_token alongside the access_token. Claude.ai (and other
+    # remote-MCP clients that request `openid`) fail the whole flow
+    # silently if it's missing — hence we mint a second HS256 JWT with
+    # the same identity claims and return it here.
+    if "openid" in code_item.claims.scopes:
+        response_body["id_token"] = access_token
+    return JSONResponse(response_body)
