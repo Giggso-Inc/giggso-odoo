@@ -17,7 +17,7 @@ TASK_FIELDS = [
     "partner_id",
     "date_deadline",
     "priority",
-    "kanban_state",
+    "state",
     "activity_state",
 ]
 
