@@ -1,6 +1,6 @@
 {
     "name": "Odoo MCP Connector",
-    "version": "18.0.0.1.0",
+    "version": "19.0.1.0.0",
     "summary": "Secure MCP connector for CRM and Project",
     "author": "Giggso",
     "website": "https://giggso.com",
