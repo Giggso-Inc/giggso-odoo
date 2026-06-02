@@ -30,3 +30,4 @@ deploy/nginx/certs/
 plugins/
 .model.env
 *.dns.md
+get-odoo-mcp-token.sh
