@@ -107,7 +107,7 @@ def run_uvicorn_sse(mcp: FastMCP, settings: Settings) -> None:
         # for Claude Desktop and mcp-remote to reuse them between tool
         # calls. Default of 5 s causes premature disconnects that the
         # client sees as timeouts. 120 s matches nginx proxy_read_timeout.
-        "timeout_keep_alive": 120,
+        "timeout_keep_alive": 3600,  # 60 min — prevents token churn from idle reconnects
     }
     if settings.tls_cert_file and settings.tls_key_file:
         uvicorn_kwargs["ssl_certfile"] = str(settings.tls_cert_file)
