@@ -29,3 +29,4 @@ deploy/nginx/conf.d/
 deploy/nginx/certs/
 plugins/
 .model.env
+*.dns.md
