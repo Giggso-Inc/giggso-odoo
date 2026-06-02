@@ -11,12 +11,16 @@ __pycache__/
 *.p12
 *.pfx
 .env
-.raven/
-.claude/skills/andie/
-plugins/raven-codex/
+# Raven core files — commit manifest.json and architecture.md
+# Ignore only secrets, cache, and runtime artifacts
 .raven/manifest.secrets.json
 .raven/cache/
 .raven/.cache/
+.raven/memory/
+.raven/logs/
+
+.claude/skills/andie/
+plugins/raven-codex/
 deploy/.env
 deploy/secrets/
 deploy/audit/
@@ -24,3 +28,4 @@ deploy/certs/
 deploy/nginx/conf.d/
 deploy/nginx/certs/
 plugins/
+.model.env
