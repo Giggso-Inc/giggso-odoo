@@ -8,22 +8,6 @@ from ..app import AppServices
 from .common import authenticated_login
 
 
-CRM_FIELDS = [
-    "id",
-    "name",
-    "partner_id",
-    "contact_name",
-    "email_from",
-    "phone",
-    "stage_id",
-    "user_id",
-    "team_id",
-    "probability",
-    "expected_revenue",
-    "date_deadline",
-    "activity_state",
-]
-
 
 def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
     @mcp.tool()
@@ -34,9 +18,7 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
         """Search CRM leads/opportunities visible to the given Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="crm",
-            action="search_opportunities",
+            actor_email=actor_email, module="crm", action="search_opportunities",
             params={"query": query, "limit": min(limit, 50)},
         )
         return list(result)
@@ -48,9 +30,7 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
         """List visible CRM opportunities that have no planned next activity."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="crm",
-            action="list_stale_opportunities",
+            actor_email=actor_email, module="crm", action="list_stale_opportunities",
             params={"limit": min(limit, 50)},
         )
         return list(result)
@@ -62,9 +42,7 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
         """List CRM stages visible to the given Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="crm",
-            action="list_stages",
+            actor_email=actor_email, module="crm", action="list_stages",
             params={"limit": min(limit, 100)},
         )
         return list(result)
@@ -98,11 +76,8 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"values": values},
         )
         services.audit.write(
-            actor=actor_email,
-            action="create",
-            model="crm.lead",
-            record_id=int(dict(result)["id"]),
-            payload={"fields": sorted(values.keys())},
+            actor=actor_email, action="create", model="crm.lead",
+            record_id=int(dict(result)["id"]), payload={"fields": sorted(values.keys())},
         )
         return dict(result)
 
@@ -114,17 +89,12 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
         """Add a chatter note to a CRM lead/opportunity as the given Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="crm",
-            action="add_note",
+            actor_email=actor_email, module="crm", action="add_note",
             params={"lead_id": lead_id, "note": note},
         )
         services.audit.write(
-            actor=actor_email,
-            action="message_post",
-            model="crm.lead",
-            record_id=lead_id,
-            payload={"body_length": len(note)},
+            actor=actor_email, action="message_post", model="crm.lead",
+            record_id=lead_id, payload={"body_length": len(note)},
         )
         return dict(result)
 
@@ -136,16 +106,44 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
         """Move a CRM lead/opportunity to a stage visible to the given Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="crm",
-            action="update_stage",
+            actor_email=actor_email, module="crm", action="update_stage",
             params={"lead_id": lead_id, "stage_id": stage_id},
         )
         services.audit.write(
-            actor=actor_email,
-            action="write.stage",
-            model="crm.lead",
-            record_id=lead_id,
-            payload={"stage_id": stage_id},
+            actor=actor_email, action="write.stage", model="crm.lead",
+            record_id=lead_id, payload={"stage_id": stage_id},
+        )
+        return dict(result)
+
+    @mcp.tool()
+    def crm_update_opportunity(
+        lead_id: int,
+        name: str = "",
+        expected_revenue: float | None = None,
+        probability: float | None = None,
+        deadline: str = "",
+        salesperson_id: int | None = None,
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Update a CRM opportunity: name, revenue, probability, deadline, salesperson, description."""
+        actor_email = authenticated_login()
+        values: dict[str, Any] = {}
+        if name: values["name"] = name
+        if description: values["description"] = description
+        if deadline: values["date_deadline"] = deadline
+        if expected_revenue is not None: values["expected_revenue"] = expected_revenue
+        if probability is not None: values["probability"] = probability
+        if salesperson_id is not None: values["user_id"] = salesperson_id
+        if not values:
+            raise ValueError("No fields to update — provide name, revenue, probability, deadline, salesperson_id, or description")
+        result = services.call_odoo(
+            actor_email=actor_email,
+            module="crm",
+            action="update_opportunity",
+            params={"lead_id": lead_id, "values": values},
+        )
+        services.audit.write(
+            actor=actor_email, action="write", model="crm.lead",
+            record_id=lead_id, payload={"fields": sorted(values.keys())},
         )
         return dict(result)

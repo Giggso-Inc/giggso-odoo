@@ -8,20 +8,6 @@ from ..app import AppServices
 from .common import authenticated_login
 
 
-PROJECT_FIELDS = ["id", "name", "user_id", "partner_id", "company_id"]
-TASK_FIELDS = [
-    "id",
-    "name",
-    "project_id",
-    "stage_id",
-    "user_ids",
-    "partner_id",
-    "date_deadline",
-    "priority",
-    "state",
-    "activity_state",
-]
-
 
 def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
     @mcp.tool()
@@ -32,9 +18,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         """List projects visible to the given Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="project",
-            action="list_projects",
+            actor_email=actor_email, module="project", action="list_projects",
             params={"query": query, "limit": min(limit, 50)},
         )
         return list(result)
@@ -63,9 +47,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         """List Project task stages visible to the given Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="project",
-            action="list_task_stages",
+            actor_email=actor_email, module="project", action="list_task_stages",
             params={"project_id": project_id, "limit": min(limit, 100)},
         )
         return list(result)
@@ -91,11 +73,8 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"values": values},
         )
         services.audit.write(
-            actor=actor_email,
-            action="create",
-            model="project.task",
-            record_id=int(dict(result)["id"]),
-            payload={"project_id": project_id, "fields": sorted(values.keys())},
+            actor=actor_email, action="create", model="project.task",
+            record_id=int(dict(result)["id"]), payload={"project_id": project_id, "fields": sorted(values.keys())},
         )
         return dict(result)
 
@@ -113,11 +92,8 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"task_id": task_id, "stage_id": stage_id},
         )
         services.audit.write(
-            actor=actor_email,
-            action="write.stage",
-            model="project.task",
-            record_id=task_id,
-            payload={"stage_id": stage_id},
+            actor=actor_email, action="write.stage", model="project.task",
+            record_id=task_id, payload={"stage_id": stage_id},
         )
         return dict(result)
 
@@ -135,10 +111,38 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"task_id": task_id, "comment": comment},
         )
         services.audit.write(
-            actor=actor_email,
-            action="message_post",
-            model="project.task",
-            record_id=task_id,
-            payload={"body_length": len(comment)},
+            actor=actor_email, action="message_post", model="project.task",
+            record_id=task_id, payload={"body_length": len(comment)},
+        )
+        return dict(result)
+
+    @mcp.tool()
+    def project_update_task(
+        task_id: int,
+        name: str = "",
+        description: str = "",
+        deadline: str = "",
+        priority: str = "",
+        assignee_ids: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Update a task: name, description, deadline, priority (0=normal/1=high), assignee_ids."""
+        actor_email = authenticated_login()
+        values: dict[str, Any] = {}
+        if name: values["name"] = name
+        if description: values["description"] = description
+        if deadline: values["date_deadline"] = deadline
+        if priority in {"0", "1"}: values["priority"] = priority
+        if assignee_ids is not None: values["user_ids"] = [(6, 0, assignee_ids)]
+        if not values:
+            raise ValueError("No fields to update — provide name, description, deadline, priority, or assignee_ids")
+        result = services.call_odoo(
+            actor_email=actor_email,
+            module="project",
+            action="update_task",
+            params={"task_id": task_id, "values": values},
+        )
+        services.audit.write(
+            actor=actor_email, action="write", model="project.task",
+            record_id=task_id, payload={"fields": sorted(values.keys())},
         )
         return dict(result)

@@ -86,3 +86,15 @@ def add_comment(user, params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Project task not found or not visible")
     task.message_post(body=params["comment"], message_type="comment", subtype_xmlid="mail.mt_comment")
     return {"id": task.id, "message": "Project task comment added"}
+
+
+def update_task(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Update fields on a visible project task including assignees and deadline."""
+    task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+    values = dict(params.get("values") or {})
+    if not values:
+        raise ValueError("No fields to update")
+    task.write(values)
+    return {"id": task.id, "message": "Project task updated"}

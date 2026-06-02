@@ -82,3 +82,15 @@ def update_stage(user, params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("CRM lead not found or not visible")
     lead.write({"stage_id": int(params["stage_id"])})
     return {"id": lead.id, "message": "CRM stage updated"}
+
+
+def update_opportunity(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Update fields on a visible CRM lead or opportunity."""
+    lead = request.env["crm.lead"].with_user(user).browse(int(params["lead_id"])).exists()
+    if not lead:
+        raise ValueError("CRM lead not found or not visible")
+    values = dict(params.get("values") or {})
+    if not values:
+        raise ValueError("No fields to update")
+    lead.write(values)
+    return {"id": lead.id, "message": "CRM opportunity updated"}

@@ -35,6 +35,7 @@ HANDLERS = {
     ("crm", "create_lead"): crm_actions.create_lead,
     ("crm", "add_note"): crm_actions.add_note,
     ("crm", "update_stage"): crm_actions.update_stage,
+    ("crm", "update_opportunity"): crm_actions.update_opportunity,
     # project
     ("project", "list_projects"): project_actions.list_projects,
     ("project", "list_tasks"): project_actions.list_tasks,
@@ -42,6 +43,7 @@ HANDLERS = {
     ("project", "create_task"): project_actions.create_task,
     ("project", "move_task_stage"): project_actions.move_task_stage,
     ("project", "add_comment"): project_actions.add_comment,
+    ("project", "update_task"): project_actions.update_task,
     # recruit
     ("recruit", "list_jobs"): recruit_actions.list_jobs,
     ("recruit", "list_applicants"): recruit_actions.list_applicants,
@@ -136,16 +138,11 @@ class OdooMcpController(http.Controller):
         return user
 
     def _audit(self, *, actor_email: str, module: str, action: str, success: bool, detail: str = "") -> None:
-        """Write a connector audit event as system metadata."""
-        request.env["odoo.mcp.audit"].sudo().create(
-            {
-                "actor_email": actor_email,
-                "module": module,
-                "action": action,
-                "success": success,
-                "detail": detail,
-            }
-        )
+        """Write a connector audit event."""
+        request.env["odoo.mcp.audit"].sudo().create({
+            "actor_email": actor_email, "module": module, "action": action,
+            "success": success, "detail": detail,
+        })
 
     def _json_response(self, payload: dict[str, Any], status: int = 200) -> http.Response:
         """Return a JSON HTTP response."""
