@@ -10,6 +10,7 @@ from odoo import http
 from odoo.http import request
 
 from . import (
+    activity_actions,
     admin_actions,
     attendance_actions,
     crm_actions,
@@ -25,7 +26,6 @@ from . import (
 # Module x action -> handler. Each tuple is reachable from the MCP server
 # only when the addon is installed and the underlying Odoo module exists.
 HANDLERS = {
-    # admin
     ("admin", "health"): admin_actions.health,
     ("admin", "capabilities"): admin_actions.capabilities,
     # crm
@@ -36,6 +36,7 @@ HANDLERS = {
     ("crm", "add_note"): crm_actions.add_note,
     ("crm", "update_stage"): crm_actions.update_stage,
     ("crm", "update_opportunity"): crm_actions.update_opportunity,
+    ("crm", "schedule_activity"): activity_actions.schedule_activity,
     # project
     ("project", "list_projects"): project_actions.list_projects,
     ("project", "list_tasks"): project_actions.list_tasks,
@@ -51,6 +52,7 @@ HANDLERS = {
     ("recruit", "create_applicant"): recruit_actions.create_applicant,
     ("recruit", "move_applicant_stage"): recruit_actions.move_applicant_stage,
     ("recruit", "add_applicant_note"): recruit_actions.add_applicant_note,
+    ("recruit", "update_applicant"): recruit_actions.update_applicant,
     # hr
     ("hr", "list_employees"): hr_actions.list_employees,
     ("hr", "get_employee"): hr_actions.get_employee,
@@ -75,6 +77,7 @@ HANDLERS = {
     ("sale", "create_quotation"): sale_actions.create_quotation,
     ("sale", "confirm_order"): sale_actions.confirm_order,
     ("sale", "add_order_line"): sale_actions.add_order_line,
+    ("sale", "list_products"): sale_actions.list_products,
 }
 
 
@@ -99,10 +102,8 @@ class OdooMcpController(http.Controller):
         module = str(payload.get("module") or "")
         action = str(payload.get("action") or "")
         params = payload.get("params") or {}
-        if not actor_email:
-            raise ValueError("actor_email is required")
-        if not isinstance(params, dict):
-            raise ValueError("params must be an object")
+        if not actor_email: raise ValueError("actor_email is required")
+        if not isinstance(params, dict): raise ValueError("params must be an object")
 
         handler = HANDLERS.get((module, action))
         if not handler:

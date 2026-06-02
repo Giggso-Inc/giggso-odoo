@@ -104,6 +104,23 @@ def move_applicant_stage(user, params: dict[str, Any]) -> dict[str, Any]:
     return {"id": applicant.id, "message": "Applicant stage updated"}
 
 
+def update_applicant(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Update fields on a visible recruitment applicant."""
+    applicant = (
+        request.env["hr.applicant"]
+        .with_user(user)
+        .browse(int(params["applicant_id"]))
+        .exists()
+    )
+    if not applicant:
+        raise ValueError("Applicant not found or not visible")
+    values = dict(params.get("values") or {})
+    if not values:
+        raise ValueError("No fields to update")
+    applicant.write(values)
+    return {"id": applicant.id, "message": "Applicant updated"}
+
+
 def add_applicant_note(user, params: dict[str, Any]) -> dict[str, Any]:
     """Add an internal chatter note to an applicant."""
     applicant = (

@@ -15,6 +15,7 @@ from .bearer_store import BearerConfig, RevokedTokenStore
 from .config import Settings, load_settings
 from .oauth import OAuthCodeStore, OAuthFlowStore, OAuthStateStore, build_oauth_ui_app
 from .oauth_dcr import OAuthClientStore
+from .tools.activity import register_activity_tools
 from .tools.admin import register_admin_tools
 from .tools.attendance import register_attendance_tools
 from .tools.crm import register_crm_tools
@@ -52,6 +53,7 @@ def build_server() -> FastMCP:
     register_expense_tools(mcp, services)
     register_timesheet_tools(mcp, services)
     register_sale_tools(mcp, services)
+    register_activity_tools(mcp, services)
     return mcp
 
 

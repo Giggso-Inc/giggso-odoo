@@ -102,6 +102,23 @@ def confirm_order(user, params: dict[str, Any]) -> dict[str, Any]:
     return {"id": order.id, "state": order.state, "message": "Order confirmed"}
 
 
+def list_products(user, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """List sellable products visible to the mapped user."""
+    domain: list[Any] = [("sale_ok", "=", True), ("active", "=", True)]
+    if params.get("query"):
+        domain.append(("name", "ilike", params["query"]))
+    if params.get("product_type"):
+        domain.append(("type", "=", params["product_type"]))
+    records = request.env["product.template"].with_user(user).search_read(
+        domain,
+        ["id", "name", "list_price", "type", "categ_id", "uom_id"],
+        limit=int(params.get("limit", 30)),
+        order="name asc",
+    )
+    from .utils import compact_records
+    return compact_records(records)
+
+
 def add_order_line(user, params: dict[str, Any]) -> dict[str, Any]:
     """Append a sale.order.line to an existing draft/sent order."""
     order = (

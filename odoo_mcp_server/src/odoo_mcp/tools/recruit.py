@@ -1,11 +1,3 @@
-# ============================================================
-# File: recruit.py
-# Summary: MCP tool registrations for the recruitment domain.
-#          Wraps hr.job and hr.applicant connector actions as
-#          recruit_* tools exposed to MCP clients.
-# Version: 19.0.1.0.0
-# ============================================================
-
 from __future__ import annotations
 
 from typing import Any
@@ -22,9 +14,7 @@ def register_recruit_tools(mcp: FastMCP, services: AppServices) -> None:
         """List recruitment job postings visible to the authenticated Odoo user."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="recruit",
-            action="list_jobs",
+            actor_email=actor_email, module="recruit", action="list_jobs",
             params={"query": query, "limit": min(limit, 50)},
         )
         return list(result)
@@ -38,9 +28,7 @@ def register_recruit_tools(mcp: FastMCP, services: AppServices) -> None:
         """List applicants, optionally filtered by job_id and partner name."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="recruit",
-            action="list_applicants",
+            actor_email=actor_email, module="recruit", action="list_applicants",
             params={"job_id": job_id, "query": query, "limit": min(limit, 75)},
         )
         return list(result)
@@ -50,9 +38,7 @@ def register_recruit_tools(mcp: FastMCP, services: AppServices) -> None:
         """List recruitment kanban stages."""
         actor_email = authenticated_login()
         result = services.call_odoo(
-            actor_email=actor_email,
-            module="recruit",
-            action="list_applicant_stages",
+            actor_email=actor_email, module="recruit", action="list_applicant_stages",
             params={"limit": min(limit, 100)},
         )
         return list(result)
@@ -86,11 +72,8 @@ def register_recruit_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"values": values},
         )
         services.audit.write(
-            actor=actor_email,
-            action="create",
-            model="hr.applicant",
-            record_id=int(dict(result)["id"]),
-            payload={"job_id": job_id, "fields": sorted(values.keys())},
+            actor=actor_email, action="create", model="hr.applicant",
+            record_id=int(dict(result)["id"]), payload={"job_id": job_id, "fields": sorted(values.keys())},
         )
         return dict(result)
 
@@ -108,11 +91,8 @@ def register_recruit_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"applicant_id": applicant_id, "stage_id": stage_id},
         )
         services.audit.write(
-            actor=actor_email,
-            action="write.stage",
-            model="hr.applicant",
-            record_id=applicant_id,
-            payload={"stage_id": stage_id},
+            actor=actor_email, action="write.stage", model="hr.applicant",
+            record_id=applicant_id, payload={"stage_id": stage_id},
         )
         return dict(result)
 
@@ -130,10 +110,38 @@ def register_recruit_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"applicant_id": applicant_id, "note": note},
         )
         services.audit.write(
-            actor=actor_email,
-            action="message_post",
-            model="hr.applicant",
-            record_id=applicant_id,
-            payload={"body_length": len(note)},
+            actor=actor_email, action="message_post", model="hr.applicant",
+            record_id=applicant_id, payload={"body_length": len(note)},
+        )
+        return dict(result)
+
+    @mcp.tool()
+    def recruit_update_applicant(
+        applicant_id: int,
+        partner_name: str = "",
+        email: str = "",
+        phone: str = "",
+        priority: str = "",
+        recruiter_id: int | None = None,
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Update an applicant: name, contact info, priority (0-3), recruiter_id."""
+        actor_email = authenticated_login()
+        values: dict[str, Any] = {}
+        if partner_name: values["partner_name"] = partner_name
+        if email: values["email_from"] = email
+        if phone: values["partner_phone"] = phone
+        if priority in {"0", "1", "2", "3"}: values["priority"] = priority
+        if recruiter_id is not None: values["user_id"] = recruiter_id
+        if description: values["description"] = description
+        if not values:
+            raise ValueError("No fields to update")
+        result = services.call_odoo(
+            actor_email=actor_email, module="recruit", action="update_applicant",
+            params={"applicant_id": applicant_id, "values": values},
+        )
+        services.audit.write(
+            actor=actor_email, action="write", model="hr.applicant",
+            record_id=applicant_id, payload={"fields": sorted(values.keys())},
         )
         return dict(result)

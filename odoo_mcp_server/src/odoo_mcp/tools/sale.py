@@ -1,11 +1,3 @@
-# ============================================================
-# File: sale.py
-# Summary: MCP tool registrations for the sale domain.
-#          Wraps sale.order + sale.order.line actions as
-#          sale_* tools exposed to MCP clients.
-# Version: 19.0.1.0.0
-# ============================================================
-
 from __future__ import annotations
 
 from typing import Any
@@ -75,11 +67,8 @@ def register_sale_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"values": values},
         )
         services.audit.write(
-            actor=actor_email,
-            action="create",
-            model="sale.order",
-            record_id=int(dict(result)["id"]),
-            payload={"partner_id": partner_id, "line_count": len(order_lines or [])},
+            actor=actor_email, action="create", model="sale.order",
+            record_id=int(dict(result)["id"]), payload={"partner_id": partner_id, "line_count": len(order_lines or [])},
         )
         return dict(result)
 
@@ -94,11 +83,8 @@ def register_sale_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"order_id": order_id},
         )
         services.audit.write(
-            actor=actor_email,
-            action="action_confirm",
-            model="sale.order",
-            record_id=order_id,
-            payload={"event": "confirm"},
+            actor=actor_email, action="action_confirm", model="sale.order",
+            record_id=order_id, payload={"event": "confirm"},
         )
         return dict(result)
 
@@ -128,10 +114,21 @@ def register_sale_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"order_id": order_id, "values": values},
         )
         services.audit.write(
-            actor=actor_email,
-            action="create",
-            model="sale.order.line",
-            record_id=int(dict(result)["id"]),
-            payload={"order_id": order_id, "product_id": product_id},
+            actor=actor_email, action="create", model="sale.order.line",
+            record_id=int(dict(result)["id"]), payload={"order_id": order_id, "product_id": product_id},
         )
         return dict(result)
+
+    @mcp.tool()
+    def sale_list_products(
+        query: str = "",
+        product_type: str = "",
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Search the product catalogue by name or type (service/consu/storable)."""
+        actor_email = authenticated_login()
+        result = services.call_odoo(
+            actor_email=actor_email, module="sale", action="list_products",
+            params={"query": query, "product_type": product_type, "limit": min(limit, 50)},
+        )
+        return list(result)
