@@ -135,3 +135,16 @@ def add_order_line(user, params: dict[str, Any]) -> dict[str, Any]:
     values["order_id"] = order.id
     line = request.env["sale.order.line"].with_user(user).create(values)
     return {"id": line.id, "order_id": order.id, "message": "Order line added"}
+def delete_order_line(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Delete a line from draft/sent order. Recalculates order totals."""
+    order = request.env["sale.order"].with_user(user).browse(int(params["order_id"])).exists()
+    if not order:
+        raise ValueError("Sale order not found or not visible")
+    if order.state not in ("draft", "sent"):
+        raise ValueError("Can only delete lines from draft or sent orders")
+    line = order.order_line.filtered(lambda l: l.id == int(params["line_id"]))
+    if not line:
+        raise ValueError("Order line not found in this order")
+    line_id = line.id
+    line.unlink()
+    return {"order_id": order.id, "line_id": line_id, "message": "Order line deleted"}

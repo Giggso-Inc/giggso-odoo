@@ -36,6 +36,7 @@ HANDLERS = {
     ("crm", "add_note"): crm_actions.add_note,
     ("crm", "update_stage"): crm_actions.update_stage,
     ("crm", "update_opportunity"): crm_actions.update_opportunity,
+    ("crm", "delete_lead"): crm_actions.delete_lead,
     ("crm", "schedule_activity"): activity_actions.schedule_activity,
     # project
     ("project", "list_projects"): project_actions.list_projects,
@@ -45,6 +46,7 @@ HANDLERS = {
     ("project", "move_task_stage"): project_actions.move_task_stage,
     ("project", "add_comment"): project_actions.add_comment,
     ("project", "update_task"): project_actions.update_task,
+    ("project", "delete_task"): project_actions.delete_task,
     # recruit
     ("recruit", "list_jobs"): recruit_actions.list_jobs,
     ("recruit", "list_applicants"): recruit_actions.list_applicants,
@@ -78,6 +80,7 @@ HANDLERS = {
     ("sale", "confirm_order"): sale_actions.confirm_order,
     ("sale", "add_order_line"): sale_actions.add_order_line,
     ("sale", "list_products"): sale_actions.list_products,
+    ("sale", "delete_order_line"): sale_actions.delete_order_line,
 }
 
 
@@ -111,7 +114,6 @@ class OdooMcpController(http.Controller):
         result = handler(self._user_for_actor(actor_email), params)
         self._audit(actor_email=actor_email, module=module, action=action, success=True)
         return result
-
     def _verify_signature(self, body: bytes) -> None:
         """Verify the connector HMAC signature and timestamp."""
         secret = request.env["ir.config_parameter"].sudo().get_param("odoo_mcp_connector.signing_secret")
@@ -142,9 +144,7 @@ class OdooMcpController(http.Controller):
         """Write a connector audit event."""
         request.env["odoo.mcp.audit"].sudo().create({
             "actor_email": actor_email, "module": module, "action": action,
-            "success": success, "detail": detail,
-        })
-
+            "success": success, "detail": detail,})
     def _json_response(self, payload: dict[str, Any], status: int = 200) -> http.Response:
         """Return a JSON HTTP response."""
         return request.make_response(json.dumps(payload), headers=[("Content-Type", "application/json")], status=status)

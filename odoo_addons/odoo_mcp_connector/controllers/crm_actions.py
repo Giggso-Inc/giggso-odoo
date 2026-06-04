@@ -94,3 +94,14 @@ def update_opportunity(user, params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("No fields to update")
     lead.write(values)
     return {"id": lead.id, "message": "CRM opportunity updated"}
+
+
+def delete_lead(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Delete a CRM lead/opportunity. This action is permanent."""
+    lead = request.env["crm.lead"].with_user(user).browse(int(params["lead_id"])).exists()
+    if not lead:
+        raise ValueError("CRM lead not found or not visible")
+    lead_id = lead.id
+    lead_name = lead.name
+    lead.unlink()
+    return {"id": lead_id, "name": lead_name, "message": "CRM lead deleted"}
