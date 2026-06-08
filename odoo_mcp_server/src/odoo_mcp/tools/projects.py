@@ -58,8 +58,16 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         name: str,
         description: str = "",
         deadline: str = "",
+        assignee_email: str = "",
     ) -> dict[str, Any]:
-        """Create a project task as the given Odoo user."""
+        """Create a project task as the given Odoo user.
+
+        assignee_email: optional — Odoo login or email of the user to assign
+        the task to.  When omitted the task is assigned to the caller.
+        Passed as a top-level connector param (not inside values{}) so the
+        Odoo addon can resolve it to a res.users record and build the correct
+        Many2many write command before calling create().
+        """
         actor_email = authenticated_login()
         values: dict[str, Any] = {"project_id": project_id, "name": name}
         if description:
@@ -70,11 +78,18 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             actor_email=actor_email,
             module="project",
             action="create_task",
-            params={"values": values},
+            params={"values": values, "assignee_email": assignee_email},
         )
         services.audit.write(
-            actor=actor_email, action="create", model="project.task",
-            record_id=int(dict(result)["id"]), payload={"project_id": project_id, "fields": sorted(values.keys())},
+            actor=actor_email,
+            action="create",
+            model="project.task",
+            record_id=int(dict(result)["id"]),
+            payload={
+                "project_id": project_id,
+                "fields": sorted(values.keys()),
+                "assignee_email": assignee_email or actor_email,
+            },
         )
         return dict(result)
 
