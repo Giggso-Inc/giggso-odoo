@@ -38,7 +38,7 @@ from .auth import IdentityTokenVerifier
 from .oauth_authorize import authorize
 from .oauth_dcr import register_client
 from .oauth_google import authorize_google, callback_google
-from .oauth_middleware import SessionInjectorMiddleware
+from .oauth_middleware import AcceptNormalizerMiddleware, SessionInjectorMiddleware
 from .oauth_odoo import authenticate_odoo_user, odoo_login_form, odoo_login_submit
 from .oauth_stores import OAuthCodeStore, OAuthFlowStore, OAuthStateStore
 from .oauth_token import (
@@ -174,4 +174,9 @@ def build_oauth_ui_app(
         cookie_name=session_cookie_name,
         public_paths=public_paths,
     )
+    # AcceptNormalizerMiddleware is added LAST so it wraps outermost and
+    # runs FIRST on every incoming request — before SessionInjector and
+    # before the MCP handler — rewriting Accept: */* to the two required
+    # MIME types before FastMCP's Accept validation fires.
+    app.add_middleware(AcceptNormalizerMiddleware)
     return app

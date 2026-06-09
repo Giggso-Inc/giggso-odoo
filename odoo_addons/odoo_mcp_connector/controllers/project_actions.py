@@ -65,9 +65,34 @@ def list_task_stages(user, params: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def create_task(user, params: dict[str, Any]) -> dict[str, Any]:
-    """Create a project task as the mapped Odoo user."""
-    task = request.env["project.task"].with_user(user).create(dict(params["values"]))
-    return {"id": task.id, "message": "Project task created"}
+    """Create a project task as the mapped Odoo user.
+
+    user_ids is set explicitly before create() to bypass Odoo's default_get,
+    which resolves self.env.user from the request context. On auth="public"
+    routes request.env.user is the Public user (id=3); letting default_get
+    fill user_ids would set the task owner to Public, which then fails the
+    res.users read-access check and returns 400.
+    """
+    vals = dict(params["values"])
+    assignee_email: str = str(params.get("assignee_email") or "").strip()
+    if assignee_email:
+        assignee = request.env["res.users"].sudo().search(
+            [
+                ("active", "=", True),
+                "|",
+                ("login", "=", assignee_email),
+                ("email", "=", assignee_email),
+            ],
+            limit=1,
+        )
+        if not assignee:
+            raise ValueError(f"No active Odoo user found for assignee: {assignee_email}")
+        vals["user_ids"] = [(4, assignee.id)]
+    elif "user_ids" not in vals:
+        # Default to the authenticated actor — never let default_get pick Public.
+        vals["user_ids"] = [(4, user.id)]
+    task = request.env["project.task"].with_user(user).create(vals)
+    return {"id": task.id, "name": task.name, "message": "Project task created"}
 
 
 def move_task_stage(user, params: dict[str, Any]) -> dict[str, Any]:
