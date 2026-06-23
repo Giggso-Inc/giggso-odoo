@@ -123,3 +123,14 @@ def update_task(user, params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("No fields to update")
     task.write(values)
     return {"id": task.id, "message": "Project task updated"}
+
+
+def delete_task(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Delete a project task. This action is permanent."""
+    task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+    task_id = task.id
+    task_name = task.name
+    task.unlink()
+    return {"id": task_id, "name": task_name, "message": "Project task deleted"}

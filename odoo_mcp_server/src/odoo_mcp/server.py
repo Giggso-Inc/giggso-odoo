@@ -19,6 +19,7 @@ from .tools.activity import register_activity_tools
 from .tools.admin import register_admin_tools
 from .tools.attendance import register_attendance_tools
 from .tools.crm import register_crm_tools
+from .tools.delete import register_delete_tools
 from .tools.expense import register_expense_tools
 from .tools.hr import register_hr_tools
 from .tools.projects import register_project_tools
@@ -54,6 +55,7 @@ def build_server() -> FastMCP:
     register_timesheet_tools(mcp, services)
     register_sale_tools(mcp, services)
     register_activity_tools(mcp, services)
+    register_delete_tools(mcp, services)
     return mcp
 
 
