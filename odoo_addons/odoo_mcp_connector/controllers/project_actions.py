@@ -8,6 +8,13 @@ from .utils import compact_records
 
 
 PROJECT_FIELDS = ["id", "name", "user_id", "partner_id", "company_id"]
+TASK_DETAIL_FIELDS = [
+    "id", "name", "description",
+    "project_id", "stage_id", "user_ids",
+    "partner_id", "company_id", "tag_ids",
+    "date_deadline", "priority", "state", "activity_state",
+    "create_date", "write_date",
+]
 TASK_FIELDS = [
     "id",
     "name",
@@ -91,6 +98,18 @@ def create_task(user, params: dict[str, Any]) -> dict[str, Any]:
     elif "user_ids" not in vals:
         # Default to the authenticated actor — never let default_get pick Public.
         vals["user_ids"] = [(4, user.id)]
+
+    tag_names: list[str] = [n.strip() for n in (params.get("tag_names") or []) if n and n.strip()]
+    if tag_names:
+        Tag = request.env["project.tags"].sudo()
+        tag_ids = []
+        for tag_name in tag_names:
+            tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
+            if not tag:
+                tag = Tag.create({"name": tag_name})
+            tag_ids.append(tag.id)
+        vals["tag_ids"] = [(6, 0, tag_ids)]
+
     task = request.env["project.task"].with_user(user).create(vals)
     return {"id": task.id, "name": task.name, "message": "Project task created"}
 
@@ -134,3 +153,45 @@ def delete_task(user, params: dict[str, Any]) -> dict[str, Any]:
     task_name = task.name
     task.unlink()
     return {"id": task_id, "name": task_name, "message": "Project task deleted"}
+
+
+def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Return full details of a single project task including comments and attachments."""
+    task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+
+    record = compact_records(task.read(TASK_DETAIL_FIELDS))[0]
+
+    # Enrich many2many assignees with name + email
+    if record.get("user_ids"):
+        assignees = request.env["res.users"].sudo().browse(record["user_ids"]).read(["id", "name", "email"])
+        record["user_ids"] = [{"id": a["id"], "name": a["name"], "email": a.get("email") or ""} for a in assignees]
+
+    # Enrich tags with names
+    if record.get("tag_ids"):
+        tags = request.env["project.tags"].sudo().browse(record["tag_ids"]).read(["id", "name"])
+        record["tag_ids"] = [{"id": t["id"], "name": t["name"]} for t in tags]
+
+    # Chatter comments (user-posted messages only)
+    messages = request.env["mail.message"].sudo().search_read(
+        [
+            ("model", "=", "project.task"),
+            ("res_id", "=", task.id),
+            ("message_type", "in", ["comment", "email"]),
+        ],
+        ["id", "author_id", "body", "date", "message_type"],
+        order="date desc",
+        limit=50,
+    )
+    record["comments"] = compact_records(messages)
+
+    # Attachments with file content (base64-encoded in `datas`)
+    attachments = request.env["ir.attachment"].with_user(user).search_read(
+        [("res_model", "=", "project.task"), ("res_id", "=", task.id)],
+        ["id", "name", "mimetype", "file_size", "create_date", "datas"],
+        order="create_date desc",
+    )
+    record["attachments"] = compact_records(attachments)
+
+    return record

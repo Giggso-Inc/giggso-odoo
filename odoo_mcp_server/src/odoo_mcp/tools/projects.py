@@ -24,6 +24,21 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         return list(result)
 
     @mcp.tool()
+    def project_get_task(
+        task_id: int,
+    ) -> dict[str, Any]:
+        """Get full details of a project task: title, description, stage, assignees, tags,
+        deadline, priority, state, chatter comments, and attachments (with file content)."""
+        actor_email = authenticated_login()
+        result = services.call_odoo(
+            actor_email=actor_email,
+            module="project",
+            action="get_task",
+            params={"task_id": task_id},
+        )
+        return dict(result)
+
+    @mcp.tool()
     def project_list_tasks(
         project_id: int | None = None,
         query: str = "",
@@ -59,6 +74,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         description: str = "",
         deadline: str = "",
         assignee_email: str = "",
+        tag_names: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create a project task as the given Odoo user.
 
@@ -67,6 +83,10 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         Passed as a top-level connector param (not inside values{}) so the
         Odoo addon can resolve it to a res.users record and build the correct
         Many2many write command before calling create().
+
+        tag_names: optional list of tag name strings (e.g. ["Bug", "Sprint 3"]).
+        Tags are matched by name (case-insensitive); new tags are created automatically
+        if no match is found.
         """
         actor_email = authenticated_login()
         values: dict[str, Any] = {"project_id": project_id, "name": name}
@@ -78,7 +98,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             actor_email=actor_email,
             module="project",
             action="create_task",
-            params={"values": values, "assignee_email": assignee_email},
+            params={"values": values, "assignee_email": assignee_email, "tag_names": tag_names or []},
         )
         services.audit.write(
             actor=actor_email,
@@ -161,3 +181,5 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             record_id=task_id, payload={"fields": sorted(values.keys())},
         )
         return dict(result)
+
+
