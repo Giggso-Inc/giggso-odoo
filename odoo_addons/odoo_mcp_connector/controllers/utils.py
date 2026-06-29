@@ -40,6 +40,9 @@ def _normalize_value(value):
         and isinstance(value[1], str)
     ):
         return {"id": value[0], "name": value[1]}
+    # datas from file-backed ir.attachment returns bytes in Odoo 16+ ORM calls
+    if isinstance(value, bytes):
+        return value.decode("ascii")  # already base64-encoded
     # datetime first because datetime is a subclass of date
     if isinstance(value, datetime):
         return value.isoformat()

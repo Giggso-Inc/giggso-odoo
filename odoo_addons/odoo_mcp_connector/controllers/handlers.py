@@ -40,6 +40,7 @@ HANDLERS = {
     ("project", "list_projects"): project_actions.list_projects,
     ("project", "list_tasks"): project_actions.list_tasks,
     ("project", "list_task_stages"): project_actions.list_task_stages,
+    ("project", "get_task"): project_actions.get_task,
     ("project", "create_task"): project_actions.create_task,
     ("project", "move_task_stage"): project_actions.move_task_stage,
     ("project", "add_comment"): project_actions.add_comment,
