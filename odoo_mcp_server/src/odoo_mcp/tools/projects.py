@@ -26,15 +26,21 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
     @mcp.tool()
     def project_get_task(
         task_id: int,
+        include_attachment_content: bool = False,
     ) -> dict[str, Any]:
         """Get full details of a project task: title, description, stage, assignees, tags,
-        deadline, priority, state, chatter comments, and attachments (with file content)."""
+        deadline, priority, state, chatter comments, and attachment metadata.
+
+        include_attachment_content: set True to include base64 file content in the
+        attachment list.  Omitted by default to avoid large payloads; only files
+        under 5 MB are returned even when enabled.
+        """
         actor_email = authenticated_login()
         result = services.call_odoo(
             actor_email=actor_email,
             module="project",
             action="get_task",
-            params={"task_id": task_id},
+            params={"task_id": task_id, "include_attachment_content": include_attachment_content},
         )
         return dict(result)
 

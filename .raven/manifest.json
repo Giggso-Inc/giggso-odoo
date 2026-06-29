@@ -1,78 +1,31 @@
 {
-  "project": "Odoo_MCP",
-  "owner": "giggso",
-  "version": "3.1.0-enterprise",
-  "description": "Odoo MCP Server — Secure multi-company CRM and Projects integration",
+  "project": "giggso-odoo-abbasi",
+  "org": "giggso",
+  "owner": "m.abbasi@giggso.com",
+  "user_email": "m.abbasi@giggso.com",
+  "hub_url": "https://ravenhub.giggso.com",
+  "version": "1.0.0",
+  "raven_version": "3.0.0",
   "stack": {
-    "language": [
-      "python3.13",
-      "shell"
-    ],
-    "frontend": [
-      "none"
-    ],
-    "data": [
-      "postgresql"
-    ],
-    "db": [
-      "postgresql"
-    ],
-    "infra": [
-      "nginx"
-    ],
-    "cloud": "on-prem",
-    "libraries": [
-      "mcp",
-      "pyjwt",
-      "starlette",
-      "uvicorn"
-    ]
+    "language": [],
+    "frontend": [],
+    "data": [],
+    "db": [],
+    "infra": [],
+    "cloud": "none",
+    "libraries": []
   },
   "standards": "raven-v1",
-  "min_compatible_version": "3.1.0",
-  "approval_mode": "first_responder",
-  "approval_mode_version": "1.0",
-  "approval_mode_changeable": true,
   "guard": {
     "enabled": true,
-    "version": "1.0",
-    "git": {
-      "force_push": "hard_block",
-      "branch_deletion": "approval_flow",
-      "file_deletion": "approval_flow",
-      "deletion_flag": "GUARD:ALLOW-DELETE"
-    },
-    "db": {
-      "mass_deletion_threshold": 100,
-      "truncation": "hard_block",
-      "schema_drop": "hard_block",
-      "index_deletion": "approval_flow"
-    },
-    "infra": {
-      "s3_delete": "approval_flow",
-      "terraform_state": "hard_block",
-      "vm_terminate": "approval_flow",
-      "network_change": "approval_flow"
-    },
-    "firewall": {
-      "open_world": "hard_block",
-      "rule_change": "approval_flow",
-      "egress_change": "approval_flow"
-    },
-    "incidents": {
-      "p1_sla_minutes": 15,
-      "p2_sla_minutes": 60,
-      "p3_sla_hours": 24
-    }
+    "version": "1.0"
   },
   "changelog": [
     {
-      "version": "3.1.0-enterprise",
-      "date": "2026-06-02T00:00:00Z",
-      "changed_by": "giggso.ravi@gmail.com",
-      "summary": "Initialized with raven-enterprise. Added Odoo domain guards, OAuth DCR flow, nginx SSL/TLS configuration, multi-company security rules.",
-      "pr": "initial",
-      "approved_by": "giggso.ravi@gmail.com"
+      "version": "1.0.0",
+      "date": "2026-06-29T06:03:47Z",
+      "changed_by": "m.abbasi@giggso.com",
+      "summary": "Raven project auto-initialised by session-start.py"
     }
   ]
 }

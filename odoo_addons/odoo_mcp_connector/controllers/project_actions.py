@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from odoo.exceptions import AccessError
 from odoo.http import request
 
 from .utils import compact_records
@@ -101,11 +102,18 @@ def create_task(user, params: dict[str, Any]) -> dict[str, Any]:
 
     tag_names: list[str] = [n.strip() for n in (params.get("tag_names") or []) if n and n.strip()]
     if tag_names:
-        Tag = request.env["project.tags"].sudo()
+        Tag = request.env["project.tags"].with_user(user)
         tag_ids = []
         for tag_name in tag_names:
             tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
             if not tag:
+                # Creation is gated on project manager group; read-only members
+                # can still use existing tags but cannot introduce new ones.
+                if not user.has_group("project.group_project_manager"):
+                    raise ValueError(
+                        f"Tag '{tag_name}' does not exist and you do not have permission to create tags. "
+                        "Ask a project manager to create it first."
+                    )
                 tag = Tag.create({"name": tag_name})
             tag_ids.append(tag.id)
         vals["tag_ids"] = [(6, 0, tag_ids)]
@@ -161,24 +169,37 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
     if not task:
         raise ValueError("Project task not found or not visible")
 
-    record = compact_records(task.read(TASK_DETAIL_FIELDS))[0]
+    rows = compact_records(task.read(TASK_DETAIL_FIELDS))
+    if not rows:
+        raise ValueError("Project task was deleted before it could be read")
+    record = rows[0]
 
-    # Enrich many2many assignees with name + email
+    # Enrich many2many assignees with name + email.
+    # with_user(user) keeps field-level ACLs in effect; fall back to id+name only
+    # if the caller lacks rights to read res.users.email (e.g. portal users).
     if record.get("user_ids"):
-        assignees = request.env["res.users"].sudo().browse(record["user_ids"]).read(["id", "name", "email"])
-        record["user_ids"] = [{"id": a["id"], "name": a["name"], "email": a.get("email") or ""} for a in assignees]
+        Users = request.env["res.users"].with_user(user).browse(record["user_ids"])
+        try:
+            assignees = Users.read(["id", "name", "email"])
+            record["user_ids"] = [{"id": a["id"], "name": a["name"], "email": a.get("email") or ""} for a in assignees]
+        except AccessError:
+            assignees = Users.read(["id", "name"])
+            record["user_ids"] = [{"id": a["id"], "name": a["name"]} for a in assignees]
 
     # Enrich tags with names
     if record.get("tag_ids"):
         tags = request.env["project.tags"].sudo().browse(record["tag_ids"]).read(["id", "name"])
         record["tag_ids"] = [{"id": t["id"], "name": t["name"]} for t in tags]
 
-    # Chatter comments (user-posted messages only)
-    messages = request.env["mail.message"].sudo().search_read(
+    # Chatter comments — public only (exclude internal notes via subtype_id.internal).
+    # with_user(user) keeps follower-based ir.rules in effect; .sudo() would leak
+    # internal notes to any caller regardless of their access level.
+    messages = request.env["mail.message"].with_user(user).search_read(
         [
             ("model", "=", "project.task"),
             ("res_id", "=", task.id),
             ("message_type", "in", ["comment", "email"]),
+            ("subtype_id.internal", "=", False),
         ],
         ["id", "author_id", "body", "date", "message_type"],
         order="date desc",
@@ -186,11 +207,20 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
     )
     record["comments"] = compact_records(messages)
 
-    # Attachments with file content (base64-encoded in `datas`)
+    # Attachments — metadata always; binary content only when explicitly requested.
+    # 5 MB per-file cap prevents a single large attachment from blowing the response.
+    _MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+    include_content: bool = bool(params.get("include_attachment_content"))
+    attachment_fields = ["id", "name", "mimetype", "file_size", "create_date"]
+    attachment_domain = [("res_model", "=", "project.task"), ("res_id", "=", task.id)]
+    if include_content:
+        attachment_domain.append(("file_size", "<=", _MAX_ATTACHMENT_BYTES))
+        attachment_fields.append("datas")
     attachments = request.env["ir.attachment"].with_user(user).search_read(
-        [("res_model", "=", "project.task"), ("res_id", "=", task.id)],
-        ["id", "name", "mimetype", "file_size", "create_date", "datas"],
+        attachment_domain,
+        attachment_fields,
         order="create_date desc",
+        limit=20,
     )
     record["attachments"] = compact_records(attachments)
 
