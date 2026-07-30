@@ -27,6 +27,7 @@ TASK_FIELDS = [
     "priority",
     "state",
     "activity_state",
+    "create_date",
 ]
 
 
@@ -43,12 +44,46 @@ def list_projects(user, params: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
-    """List project tasks visible to the mapped Odoo user."""
+    """List project tasks visible to the mapped Odoo user.
+
+    Supported filter params (all optional):
+      project_id    — restrict to one project
+      query         — task name contains (ilike)
+      stage_id      — exact Kanban stage ID
+      stage_name    — Kanban stage name partial match (used when stage_id absent)
+      assignee_email — tasks where login or email matches
+      created_after  — ISO 8601 date string lower bound on create_date
+      created_before — ISO 8601 date string upper bound on create_date
+      state         — personal task state: in_progress | changes_requested |
+                      approved | cancelled | done
+    """
     domain: list[Any] = []
     if params.get("project_id"):
         domain.append(("project_id", "=", int(params["project_id"])))
     if params.get("query"):
         domain.append(("name", "ilike", params["query"]))
+
+    # Stage filter — prefer exact ID; fall back to name match.
+    if params.get("stage_id"):
+        domain.append(("stage_id", "=", int(params["stage_id"])))
+    elif params.get("stage_name"):
+        domain.append(("stage_id.name", "ilike", str(params["stage_name"])))
+
+    # Assignee filter — Many2many traversal on login or email.
+    if params.get("assignee_email"):
+        email = str(params["assignee_email"]).strip()
+        domain += ["|", ("user_ids.login", "=", email), ("user_ids.email", "=", email)]
+
+    # Creation date window.
+    if params.get("created_after"):
+        domain.append(("create_date", ">=", str(params["created_after"])))
+    if params.get("created_before"):
+        domain.append(("create_date", "<=", str(params["created_before"])))
+
+    # Personal task state (Odoo 17+ enum).
+    if params.get("state"):
+        domain.append(("state", "=", str(params["state"])))
+
     records = request.env["project.task"].with_user(user).search_read(
         domain,
         TASK_FIELDS,

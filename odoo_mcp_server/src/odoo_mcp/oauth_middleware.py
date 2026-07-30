@@ -126,7 +126,7 @@ class AcceptNormalizerMiddleware:
     Pure ASGI — safe to wrap anyio-based streaming apps.
     """
 
-    _REQUIRED = "application/json, text/event-stream"
+    _REQUIRED = ("application/json", "text/event-stream")
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -138,9 +138,9 @@ class AcceptNormalizerMiddleware:
 
         headers = MutableHeaders(scope=scope)
         accept = headers.get("accept", "")
-
-        # Rewrite only when one or both required types are absent.
-        if "application/json" not in accept or "text/event-stream" not in accept:
-            headers["accept"] = self._REQUIRED
+        missing = [t for t in self._REQUIRED if t not in accept]
+        if missing:
+            sep = ", " if accept else ""
+            headers["accept"] = accept + sep + ", ".join(missing)
 
         await self.app(scope, receive, send)
