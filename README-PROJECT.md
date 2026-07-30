@@ -15,7 +15,7 @@ are audited.
 | Tool | Reads/Writes | One-line purpose |
 | --- | --- | --- |
 | `project_list_projects` | read | List projects (optionally filtered by name) |
-| `project_list_tasks` | read | List tasks (optionally by project / name) |
+| `project_list_tasks` | read | List tasks — filter by project, stage, assignee, date, state |
 | `project_list_task_stages` | read | Stage catalog (for `stage_id` refs) |
 | `project_create_task` | write | Create a task under a project |
 | `project_move_task_stage` | write | Move a task between Kanban stages |
@@ -24,7 +24,7 @@ are audited.
 **Project fields returned:** `id, name, user_id, partner_id, company_id`.
 
 **Task fields returned:** `id, name, project_id, stage_id, user_ids,
-partner_id, date_deadline, priority, state, activity_state`.
+partner_id, date_deadline, priority, state, activity_state, create_date`.
 
 > Note: in Odoo 17+ the legacy `kanban_state` column was removed. We
 > read `state` instead — values like `01_in_progress`,
@@ -51,22 +51,31 @@ partner_id, date_deadline, priority, state, activity_state`.
 
 ## `project_list_tasks`
 
-**Purpose:** list tasks, optionally scoped to a project.
+**Purpose:** list tasks with server-side filtering. All params are optional and combinable.
 
 **Params:**
-- `project_id` (int, optional) — when omitted, returns tasks across
-  all projects you can see
-- `query` (str, optional) — substring on task name
-- `limit` (int, default 30, capped at 75)
+
+| Param | Type | Description |
+|---|---|---|
+| `project_id` | int | Restrict to one project. Omit for all visible projects. |
+| `query` | str | Task name substring (case-insensitive). |
+| `stage_id` | int | Exact Kanban stage ID. Use `project_list_task_stages` to look up IDs. |
+| `stage_name` | str | Kanban stage name partial match, e.g. `"In Progress"`. Used when `stage_id` is absent. |
+| `assignee_email` | str | Return only tasks assigned to this user (matches Odoo login or email). |
+| `created_after` | str | ISO 8601 date — tasks created on or after this date, e.g. `"2026-07-29"`. |
+| `created_before` | str | ISO 8601 date — tasks created on or before this date. |
+| `state` | str | Personal task state: `in_progress` · `changes_requested` · `approved` · `cancelled` · `done`. |
+| `limit` | int | Default 30, capped at 75. |
 
 **Example prompts:**
-- "List open tasks in project 5."
+- "Show me tasks in stage 'In Progress' in project 22."
+- "What tasks were created today?" → `created_after="2026-07-29"`
+- "List tasks assigned to alice@giggso.com."
+- "Show done tasks in project 5 assigned to bob@giggso.com."
 - "Show all tasks named 'review' across my projects, limit 20."
 
-**Returns:** array of task objects with the TASK_FIELDS above.
-
-**Tip:** combine with `project_list_task_stages` to filter
-client-side (Claude can do this in conversation).
+**Returns:** array of task objects — `id, name, project_id, stage_id, user_ids,
+partner_id, date_deadline, priority, state, activity_state, create_date`.
 
 ---
 

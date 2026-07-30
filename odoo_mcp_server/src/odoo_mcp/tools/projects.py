@@ -48,15 +48,43 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
     def project_list_tasks(
         project_id: int | None = None,
         query: str = "",
+        stage_id: int | None = None,
+        stage_name: str = "",
+        assignee_email: str = "",
+        created_after: str = "",
+        created_before: str = "",
+        state: str = "",
         limit: int = 30,
     ) -> list[dict[str, Any]]:
-        """List tasks visible to the given Odoo user, optionally filtered by project."""
+        """List tasks visible to the given Odoo user.
+
+        All filters are optional and combinable:
+        - project_id: restrict to one project
+        - query: task name contains (case-insensitive)
+        - stage_id: exact Kanban stage ID
+        - stage_name: Kanban stage name partial match, e.g. "In Progress"
+        - assignee_email: tasks assigned to this user (login or email)
+        - created_after: ISO 8601 date, e.g. "2026-07-29" — tasks created on or after
+        - created_before: ISO 8601 date — tasks created on or before
+        - state: personal task state — in_progress | changes_requested |
+                 approved | cancelled | done
+        """
         actor_email = authenticated_login()
         result = services.call_odoo(
             actor_email=actor_email,
             module="project",
             action="list_tasks",
-            params={"project_id": project_id, "query": query, "limit": min(limit, 75)},
+            params={
+                "project_id": project_id,
+                "query": query,
+                "stage_id": stage_id,
+                "stage_name": stage_name,
+                "assignee_email": assignee_email,
+                "created_after": created_after,
+                "created_before": created_before,
+                "state": state,
+                "limit": min(limit, 75),
+            },
         )
         return list(result)
 
