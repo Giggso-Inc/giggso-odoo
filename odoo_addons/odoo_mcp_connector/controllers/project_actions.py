@@ -12,6 +12,7 @@ PROJECT_FIELDS = ["id", "name", "user_id", "partner_id", "company_id"]
 TASK_DETAIL_FIELDS = [
     "id", "name", "description",
     "project_id", "stage_id", "user_ids",
+    "create_uid",
     "partner_id", "company_id", "tag_ids",
     "date_deadline", "priority", "state", "activity_state",
     "create_date", "write_date",
@@ -22,6 +23,7 @@ TASK_FIELDS = [
     "project_id",
     "stage_id",
     "user_ids",
+    "create_uid",
     "partner_id",
     "date_deadline",
     "priority",
@@ -47,15 +49,16 @@ def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     """List project tasks visible to the mapped Odoo user.
 
     Supported filter params (all optional):
-      project_id    — restrict to one project
-      query         — task name contains (ilike)
-      stage_id      — exact Kanban stage ID
-      stage_name    — Kanban stage name partial match (used when stage_id absent)
-      assignee_email — tasks where login or email matches
-      created_after  — ISO 8601 date string lower bound on create_date
-      created_before — ISO 8601 date string upper bound on create_date
-      state         — personal task state: in_progress | changes_requested |
-                      approved | cancelled | done
+      project_id       — restrict to one project
+      query            — task name contains (ilike)
+      stage_id         — exact Kanban stage ID
+      stage_name       — Kanban stage name partial match (used when stage_id absent)
+      assignee_email   — tasks assigned to the user with this login or email
+      created_by_email — tasks created/raised by the user with this login or email
+      created_after    — ISO 8601 date string lower bound on create_date
+      created_before   — ISO 8601 date string upper bound on create_date
+      state            — personal task state: in_progress | changes_requested |
+                         approved | cancelled | done
     """
     domain: list[Any] = []
     if params.get("project_id"):
@@ -73,6 +76,14 @@ def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     if params.get("assignee_email"):
         email = str(params["assignee_email"]).strip()
         domain += ["|", ("user_ids.login", "=", email), ("user_ids.email", "=", email)]
+
+    # Creator / reporter filter — Many2one path traversal on create_uid.
+    # create_uid is a Many2one(res.users), so .login and .email traversal is
+    # reliable across Odoo 14+. No sudo needed; the calling user's read access
+    # on project.task is sufficient for the search itself.
+    if params.get("created_by_email"):
+        email = str(params["created_by_email"]).strip()
+        domain += ["|", ("create_uid.login", "=", email), ("create_uid.email", "=", email)]
 
     # Creation date window.
     if params.get("created_after"):
@@ -220,6 +231,14 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
         except AccessError:
             assignees = Users.read(["id", "name"])
             record["user_ids"] = [{"id": a["id"], "name": a["name"]} for a in assignees]
+
+    # Enrich create_uid (Many2one) to {id, name, email} — matches user_ids shape.
+    if task.create_uid:
+        try:
+            c = task.create_uid.with_user(user)
+            record["create_uid"] = {"id": c.id, "name": c.name, "email": c.email or ""}
+        except AccessError:
+            record["create_uid"] = {"id": task.create_uid.id, "name": task.create_uid.name}
 
     # Enrich tags with names
     if record.get("tag_ids"):

@@ -51,6 +51,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         stage_id: int | None = None,
         stage_name: str = "",
         assignee_email: str = "",
+        created_by_email: str = "",
         created_after: str = "",
         created_before: str = "",
         state: str = "",
@@ -64,10 +65,15 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         - stage_id: exact Kanban stage ID
         - stage_name: Kanban stage name partial match, e.g. "In Progress"
         - assignee_email: tasks assigned to this user (login or email)
+        - created_by_email: tasks created / raised by this user (login or email)
         - created_after: ISO 8601 date, e.g. "2026-07-29" — tasks created on or after
         - created_before: ISO 8601 date — tasks created on or before
         - state: personal task state — in_progress | changes_requested |
                  approved | cancelled | done
+
+        Each returned task includes:
+        - create_uid: {id, name} — the user who created/raised the task
+        For full creator email, use project_get_task which returns create_uid as {id, name, email}.
         """
         actor_email = authenticated_login()
         result = services.call_odoo(
@@ -80,6 +86,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
                 "stage_id": stage_id,
                 "stage_name": stage_name,
                 "assignee_email": assignee_email,
+                "created_by_email": created_by_email,
                 "created_after": created_after,
                 "created_before": created_before,
                 "state": state,
