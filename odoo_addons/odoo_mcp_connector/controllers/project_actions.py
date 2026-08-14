@@ -22,6 +22,7 @@ TASK_FIELDS = [
     "project_id",
     "stage_id",
     "user_ids",
+    "create_uid",
     "partner_id",
     "date_deadline",
     "priority",
@@ -47,15 +48,16 @@ def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     """List project tasks visible to the mapped Odoo user.
 
     Supported filter params (all optional):
-      project_id    — restrict to one project
-      query         — task name contains (ilike)
-      stage_id      — exact Kanban stage ID
-      stage_name    — Kanban stage name partial match (used when stage_id absent)
-      assignee_email — tasks where login or email matches
-      created_after  — ISO 8601 date string lower bound on create_date
-      created_before — ISO 8601 date string upper bound on create_date
-      state         — personal task state: in_progress | changes_requested |
-                      approved | cancelled | done
+      project_id       — restrict to one project
+      query            — task name contains (ilike)
+      stage_id         — exact Kanban stage ID
+      stage_name       — Kanban stage name partial match (used when stage_id absent)
+      assignee_email   — tasks assigned to the user with this login or email
+      created_by_email — tasks created/raised by the user with this login or email
+      created_after    — ISO 8601 date string lower bound on create_date
+      created_before   — ISO 8601 date string upper bound on create_date
+      state            — personal task state: in_progress | changes_requested |
+                         approved | cancelled | done
     """
     domain: list[Any] = []
     if params.get("project_id"):
@@ -73,6 +75,14 @@ def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     if params.get("assignee_email"):
         email = str(params["assignee_email"]).strip()
         domain += ["|", ("user_ids.login", "=", email), ("user_ids.email", "=", email)]
+
+    # Creator / reporter filter — Many2one path traversal on create_uid.
+    # create_uid is a Many2one(res.users), so .login and .email traversal is
+    # reliable across Odoo 14+. No sudo needed; the calling user's read access
+    # on project.task is sufficient for the search itself.
+    if params.get("created_by_email"):
+        email = str(params["created_by_email"]).strip()
+        domain += ["|", ("create_uid.login", "=", email), ("create_uid.email", "=", email)]
 
     # Creation date window.
     if params.get("created_after"):
