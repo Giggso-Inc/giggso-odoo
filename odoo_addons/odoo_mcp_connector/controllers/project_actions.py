@@ -12,6 +12,7 @@ PROJECT_FIELDS = ["id", "name", "user_id", "partner_id", "company_id"]
 TASK_DETAIL_FIELDS = [
     "id", "name", "description",
     "project_id", "stage_id", "user_ids",
+    "create_uid",
     "partner_id", "company_id", "tag_ids",
     "date_deadline", "priority", "state", "activity_state",
     "create_date", "write_date",
@@ -230,6 +231,14 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
         except AccessError:
             assignees = Users.read(["id", "name"])
             record["user_ids"] = [{"id": a["id"], "name": a["name"]} for a in assignees]
+
+    # Enrich create_uid (Many2one) to {id, name, email} — matches user_ids shape.
+    if task.create_uid:
+        try:
+            c = task.create_uid.with_user(user)
+            record["create_uid"] = {"id": c.id, "name": c.name, "email": c.email or ""}
+        except AccessError:
+            record["create_uid"] = {"id": task.create_uid.id, "name": task.create_uid.name}
 
     # Enrich tags with names
     if record.get("tag_ids"):

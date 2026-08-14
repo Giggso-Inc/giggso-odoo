@@ -71,7 +71,9 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         - state: personal task state — in_progress | changes_requested |
                  approved | cancelled | done
 
-        Each returned task includes a create_uid field (creator id + name).
+        Each returned task includes:
+        - create_uid: {id, name} — the user who created/raised the task
+        For full creator email, use project_get_task which returns create_uid as {id, name, email}.
         """
         actor_email = authenticated_login()
         result = services.call_odoo(
