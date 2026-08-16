@@ -269,3 +269,36 @@ class TestListTasksFilters:
 
     def test_create_date_in_task_fields_constant(self):
         assert "create_date" in project_actions.TASK_FIELDS
+
+    def test_returns_dict_with_tasks_key(self):
+        ctx, _, _ = _patch_list_request(records=[])
+        with ctx:
+            result = list_tasks(_make_user(), {})
+        assert isinstance(result, dict)
+        assert "tasks" in result
+        assert "count" in result
+        assert "truncated" in result
+
+    def test_truncated_false_when_under_limit(self):
+        ctx, _, _ = _patch_list_request(records=[{"id": 1}])
+        with ctx:
+            result = list_tasks(_make_user(), {"limit": 30})
+        assert result["truncated"] is False
+        assert result["count"] == 1
+
+    def test_truncated_true_when_at_limit(self):
+        # Return exactly `limit` rows — truncated should be True.
+        rows = [{"id": i} for i in range(5)]
+        ctx, _, _ = _patch_list_request(records=rows)
+        with ctx:
+            result = list_tasks(_make_user(), {"limit": 5})
+        assert result["truncated"] is True
+
+    def test_parent_id_in_task_fields(self):
+        assert "parent_id" in project_actions.TASK_FIELDS
+
+    def test_filter_by_created_by_email(self):
+        domain = self._run({"created_by_email": "dev@example.com"})
+        assert "|" in domain
+        assert ("create_uid.login", "=", "dev@example.com") in domain
+        assert ("create_uid.email", "=", "dev@example.com") in domain
