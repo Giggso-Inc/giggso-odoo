@@ -282,6 +282,37 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         return dict(result)
 
     @mcp.tool()
+    def project_read_attachment(
+        attachment_id: int,
+    ) -> dict[str, Any]:
+        """Read the content of a single task attachment by its ID.
+
+        Attachment IDs are returned by project_get_task in the "attachments" list.
+
+        Returns:
+        - id, name, mimetype, file_size — metadata
+        - text_content: decoded UTF-8 string for text files (markdown, JSON, CSV,
+          plain text, XML, JS) — immediately readable, no decoding needed
+        - content_base64: raw base64 for binary files (PDF, images, etc.)
+        - decode_error: present only if a text file could not be decoded as UTF-8
+
+        Files over 5 MB are rejected.
+
+        Typical PR-review workflow:
+          1. project_get_task(task_id=X) → find attachment named "tdd.md" → note its id
+          2. project_read_attachment(attachment_id=Y) → get text_content
+          3. Use text_content as context while reviewing the PR diff
+        """
+        actor_email = authenticated_login()
+        result = services.call_odoo(
+            actor_email=actor_email,
+            module="project",
+            action="get_attachment",
+            params={"attachment_id": attachment_id},
+        )
+        return dict(result)
+
+    @mcp.tool()
     def project_add_followers(
         task_id: int,
         partner_emails: list[str],

@@ -351,6 +351,61 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+_TEXT_MIMETYPES = {
+    "text/plain", "text/markdown", "text/csv", "text/html",
+    "application/json", "application/xml", "text/xml",
+    "application/javascript", "text/javascript",
+}
+
+
+def get_attachment(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Fetch a single attachment by ID and return its content.
+
+    Returns metadata plus one of:
+      - text_content: decoded UTF-8 string (for text/* and common text formats)
+      - content_base64: raw base64 string (for binary files)
+
+    text_content is returned when mimetype is text/*, application/json,
+    application/xml, or similar — so markdown, CSV, JSON, and plain text
+    files are immediately readable without base64 decoding.
+
+    Files over 5 MB are rejected.
+    """
+    _MAX_BYTES = 5 * 1024 * 1024
+    attachment = request.env["ir.attachment"].with_user(user).browse(int(params["attachment_id"])).exists()
+    if not attachment:
+        raise ValueError("Attachment not found or not accessible")
+    if attachment.file_size and attachment.file_size > _MAX_BYTES:
+        raise ValueError(f"Attachment exceeds 5 MB limit ({attachment.file_size} bytes)")
+
+    import base64
+    raw_b64: str = attachment.datas or ""
+    if not raw_b64:
+        raise ValueError("Attachment has no content")
+
+    mimetype: str = attachment.mimetype or "application/octet-stream"
+    # Normalise: "text/markdown; charset=utf-8" → "text/markdown"
+    base_mime = mimetype.split(";")[0].strip().lower()
+    is_text = base_mime in _TEXT_MIMETYPES or base_mime.startswith("text/")
+
+    result: dict[str, Any] = {
+        "id": attachment.id,
+        "name": attachment.name,
+        "mimetype": mimetype,
+        "file_size": attachment.file_size,
+    }
+    if is_text:
+        try:
+            result["text_content"] = base64.b64decode(raw_b64).decode("utf-8")
+        except (UnicodeDecodeError, Exception):
+            result["content_base64"] = raw_b64
+            result["decode_error"] = "File reported as text but could not be decoded as UTF-8"
+    else:
+        result["content_base64"] = raw_b64
+
+    return result
+
+
 def attach_file(user, params: dict[str, Any]) -> dict[str, Any]:
     """Upload a file attachment to a project task.
 

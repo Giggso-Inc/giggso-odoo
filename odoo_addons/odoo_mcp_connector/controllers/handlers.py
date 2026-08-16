@@ -46,6 +46,7 @@ HANDLERS = {
     ("project", "add_comment"): project_actions.add_comment,
     ("project", "update_task"): project_actions.update_task,
     ("project", "delete_task"): project_actions.delete_task,
+    ("project", "get_attachment"): project_actions.get_attachment,
     ("project", "attach_file"): project_actions.attach_file,
     ("project", "add_followers"): project_actions.add_followers,
     ("project", "remove_followers"): project_actions.remove_followers,
