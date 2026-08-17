@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from odoo.exceptions import AccessError
@@ -7,12 +8,36 @@ from odoo.http import request
 
 from .utils import compact_records
 
+_logger = logging.getLogger(__name__)
+
+
+def _resolve_tag_ids(user, tag_names: list[str]) -> list[int]:
+    """Resolve tag names to IDs, creating missing tags when the user is a project manager."""
+    Tag = request.env["project.tags"].with_user(user)
+    tag_ids = []
+    for tag_name in tag_names:
+        tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
+        if not tag:
+            if not user.has_group("project.group_project_manager"):
+                raise ValueError(
+                    f"Tag '{tag_name}' does not exist and you do not have permission to create tags. "
+                    "Ask a project manager to create it first."
+                )
+            tag = Tag.create({"name": tag_name})
+        tag_ids.append(tag.id)
+    return tag_ids
+
+
+def _is_internal_user(partner) -> bool:
+    """Return True when the partner has at least one active internal (non-portal) Odoo user."""
+    return bool(partner.user_ids.filtered(lambda u: u.active and not u.share))
+
 
 PROJECT_FIELDS = ["id", "name", "user_id", "partner_id", "company_id"]
 TASK_DETAIL_FIELDS = [
     "id", "name", "description",
     "project_id", "stage_id", "user_ids",
-    "create_uid",
+    "create_uid", "parent_id", "child_ids",
     "partner_id", "company_id", "tag_ids",
     "date_deadline", "priority", "state", "activity_state",
     "create_date", "write_date",
@@ -24,6 +49,7 @@ TASK_FIELDS = [
     "stage_id",
     "user_ids",
     "create_uid",
+    "parent_id",
     "partner_id",
     "date_deadline",
     "priority",
@@ -45,8 +71,12 @@ def list_projects(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     return compact_records(records)
 
 
-def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
+def list_tasks(user, params: dict[str, Any]) -> dict[str, Any]:
     """List project tasks visible to the mapped Odoo user.
+
+    Returns {"tasks": [...], "count": N, "truncated": bool}.
+    `truncated` is True when count equals the requested limit — more rows
+    may exist; narrow the filter or increase limit.
 
     Supported filter params (all optional):
       project_id       — restrict to one project
@@ -78,9 +108,6 @@ def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
         domain += ["|", ("user_ids.login", "=", email), ("user_ids.email", "=", email)]
 
     # Creator / reporter filter — Many2one path traversal on create_uid.
-    # create_uid is a Many2one(res.users), so .login and .email traversal is
-    # reliable across Odoo 14+. No sudo needed; the calling user's read access
-    # on project.task is sufficient for the search itself.
     if params.get("created_by_email"):
         email = str(params["created_by_email"]).strip()
         domain += ["|", ("create_uid.login", "=", email), ("create_uid.email", "=", email)]
@@ -95,13 +122,15 @@ def list_tasks(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     if params.get("state"):
         domain.append(("state", "=", str(params["state"])))
 
+    lim = int(params.get("limit", 30))
     records = request.env["project.task"].with_user(user).search_read(
         domain,
         TASK_FIELDS,
-        limit=int(params.get("limit", 30)),
+        limit=lim,
         order="write_date desc",
     )
-    return compact_records(records)
+    items = compact_records(records)
+    return {"tasks": items, "count": len(items), "truncated": len(items) >= lim}
 
 
 def list_task_stages(user, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -146,23 +175,22 @@ def create_task(user, params: dict[str, Any]) -> dict[str, Any]:
         # Default to the authenticated actor — never let default_get pick Public.
         vals["user_ids"] = [(4, user.id)]
 
+    # Optional subtask parent linkage — access-checked so callers cannot
+    # enumerate tasks outside their visibility by trying arbitrary IDs.
+    if params.get("parent_id"):
+        parent = (
+            request.env["project.task"]
+            .with_user(user)
+            .browse(int(params["parent_id"]))
+            .exists()
+        )
+        if not parent:
+            raise ValueError("Parent task not found or not visible")
+        vals["parent_id"] = parent.id
+
     tag_names: list[str] = [n.strip() for n in (params.get("tag_names") or []) if n and n.strip()]
     if tag_names:
-        Tag = request.env["project.tags"].with_user(user)
-        tag_ids = []
-        for tag_name in tag_names:
-            tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
-            if not tag:
-                # Creation is gated on project manager group; read-only members
-                # can still use existing tags but cannot introduce new ones.
-                if not user.has_group("project.group_project_manager"):
-                    raise ValueError(
-                        f"Tag '{tag_name}' does not exist and you do not have permission to create tags. "
-                        "Ask a project manager to create it first."
-                    )
-                tag = Tag.create({"name": tag_name})
-            tag_ids.append(tag.id)
-        vals["tag_ids"] = [(6, 0, tag_ids)]
+        vals["tag_ids"] = [(6, 0, _resolve_tag_ids(user, tag_names))]
 
     task = request.env["project.task"].with_user(user).create(vals)
     return {"id": task.id, "name": task.name, "message": "Project task created"}
@@ -178,20 +206,63 @@ def move_task_stage(user, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def add_comment(user, params: dict[str, Any]) -> dict[str, Any]:
-    """Add a chatter comment to a visible project task."""
+    """Add a chatter comment to a visible project task.
+
+    partner_emails: optional list of user emails to notify/mention.
+    Resolves each to res.partner and passes as partner_ids to message_post,
+    which triggers Odoo's native chatter notification to those users.
+    """
     task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
     if not task:
         raise ValueError("Project task not found or not visible")
-    task.message_post(body=params["comment"], message_type="comment", subtype_xmlid="mail.mt_comment")
-    return {"id": task.id, "message": "Project task comment added"}
+
+    partner_ids: list[int] = []
+    for email in (params.get("partner_emails") or []):
+        email = str(email).strip()
+        if not email:
+            continue
+        partner = request.env["res.partner"].sudo().search(
+            ["|", ("email", "=", email), ("user_ids.login", "=", email)], limit=1
+        )
+        # Only notify internal users — skip portal/external partners to prevent
+        # leaking task content to accounts outside the organisation.
+        if partner and _is_internal_user(partner):
+            partner_ids.append(partner.id)
+
+    task.message_post(
+        body=params["comment"],
+        message_type="comment",
+        subtype_xmlid="mail.mt_comment",
+        partner_ids=partner_ids or [],
+    )
+    return {"id": task.id, "message": "Project task comment added", "notified": len(partner_ids)}
 
 
 def update_task(user, params: dict[str, Any]) -> dict[str, Any]:
-    """Update fields on a visible project task including assignees and deadline."""
+    """Update fields on a visible project task including assignees, deadline, parent, and tags."""
     task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
     if not task:
         raise ValueError("Project task not found or not visible")
     values = dict(params.get("values") or {})
+
+    if params.get("parent_id") is not None:
+        if params["parent_id"]:
+            parent = (
+                request.env["project.task"]
+                .with_user(user)
+                .browse(int(params["parent_id"]))
+                .exists()
+            )
+            if not parent:
+                raise ValueError("Parent task not found or not visible")
+            values["parent_id"] = parent.id
+        else:
+            values["parent_id"] = False
+
+    tag_names: list[str] = [n.strip() for n in (params.get("tag_names") or []) if n and n.strip()]
+    if tag_names:
+        values["tag_ids"] = [(6, 0, _resolve_tag_ids(user, tag_names))]
+
     if not values:
         raise ValueError("No fields to update")
     task.write(values)
@@ -221,8 +292,6 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
     record = rows[0]
 
     # Enrich many2many assignees with name + email.
-    # with_user(user) keeps field-level ACLs in effect; fall back to id+name only
-    # if the caller lacks rights to read res.users.email (e.g. portal users).
     if record.get("user_ids"):
         Users = request.env["res.users"].with_user(user).browse(record["user_ids"])
         try:
@@ -232,22 +301,49 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
             assignees = Users.read(["id", "name"])
             record["user_ids"] = [{"id": a["id"], "name": a["name"]} for a in assignees]
 
-    # Enrich create_uid (Many2one) to {id, name, email} — matches user_ids shape.
+    # Enrich create_uid (Many2one) to {id, name, email}.
+    # If the caller lacks res.users.email access, downgrade to {id, name} and
+    # surface create_uid_restricted=True so callers know the email was dropped.
     if task.create_uid:
         try:
             c = task.create_uid.with_user(user)
             record["create_uid"] = {"id": c.id, "name": c.name, "email": c.email or ""}
         except AccessError:
             record["create_uid"] = {"id": task.create_uid.id, "name": task.create_uid.name}
+            record["create_uid_restricted"] = True
 
-    # Enrich tags with names
+    # Enrich tags with names.
     if record.get("tag_ids"):
         tags = request.env["project.tags"].sudo().browse(record["tag_ids"]).read(["id", "name"])
         record["tag_ids"] = [{"id": t["id"], "name": t["name"]} for t in tags]
 
-    # Chatter comments — public only (exclude internal notes via subtype_id.internal).
-    # with_user(user) keeps follower-based ir.rules in effect; .sudo() would leak
-    # internal notes to any caller regardless of their access level.
+    # Enrich parent_id: compact_records leaves it as (id, name) pair — normalise.
+    # record["parent_id"] is already compacted to {id, name} or None by compact_records.
+
+    # Enrich child_ids (subtasks): replace raw ids with [{id, name, stage_id}].
+    if record.get("child_ids"):
+        child_rows = request.env["project.task"].with_user(user).browse(record["child_ids"]).read(
+            ["id", "name", "stage_id", "state"]
+        )
+        record["child_ids"] = compact_records(child_rows)
+
+    # Followers: mail.followers linked to this task — name + email of each partner.
+    try:
+        followers = request.env["mail.followers"].sudo().search_read(
+            [("res_model", "=", "project.task"), ("res_id", "=", task.id)],
+            ["partner_id"],
+        )
+        partner_ids_raw = [f["partner_id"][0] for f in followers if f.get("partner_id")]
+        if partner_ids_raw:
+            partners = request.env["res.partner"].sudo().browse(partner_ids_raw).read(["id", "name", "email"])
+            record["followers"] = [{"id": p["id"], "name": p["name"], "email": p.get("email") or ""} for p in partners]
+        else:
+            record["followers"] = []
+    except Exception:
+        _logger.warning("get_task: failed to load followers for task %s", task.id, exc_info=True)
+        record["followers"] = []
+
+    # Chatter comments — public only (exclude internal notes).
     messages = request.env["mail.message"].with_user(user).search_read(
         [
             ("model", "=", "project.task"),
@@ -262,7 +358,6 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
     record["comments"] = compact_records(messages)
 
     # Attachments — metadata always; binary content only when explicitly requested.
-    # 5 MB per-file cap prevents a single large attachment from blowing the response.
     _MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
     include_content: bool = bool(params.get("include_attachment_content"))
     attachment_fields = ["id", "name", "mimetype", "file_size", "create_date"]
@@ -279,3 +374,150 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
     record["attachments"] = compact_records(attachments)
 
     return record
+
+
+_TEXT_MIMETYPES = {
+    "text/plain", "text/markdown", "text/csv", "text/html",
+    "application/json", "application/xml", "text/xml",
+    "application/javascript", "text/javascript",
+}
+
+
+def get_attachment(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Fetch a single attachment by ID and return its content.
+
+    Returns metadata plus one of:
+      - text_content: decoded UTF-8 string (for text/* and common text formats)
+      - content_base64: raw base64 string (for binary files)
+
+    text_content is returned when mimetype is text/*, application/json,
+    application/xml, or similar — so markdown, CSV, JSON, and plain text
+    files are immediately readable without base64 decoding.
+
+    Files over 5 MB are rejected.
+    """
+    _MAX_BYTES = 5 * 1024 * 1024
+    attachment = request.env["ir.attachment"].with_user(user).browse(int(params["attachment_id"])).exists()
+    if not attachment:
+        raise ValueError("Attachment not found or not accessible")
+    if attachment.file_size and attachment.file_size > _MAX_BYTES:
+        raise ValueError(f"Attachment exceeds 5 MB limit ({attachment.file_size} bytes)")
+
+    import base64
+    raw_b64: str = attachment.datas or ""
+    if not raw_b64:
+        raise ValueError("Attachment has no content")
+
+    mimetype: str = attachment.mimetype or "application/octet-stream"
+    # Normalise: "text/markdown; charset=utf-8" → "text/markdown"
+    base_mime = mimetype.split(";")[0].strip().lower()
+    is_text = base_mime in _TEXT_MIMETYPES or base_mime.startswith("text/")
+
+    result: dict[str, Any] = {
+        "id": attachment.id,
+        "name": attachment.name,
+        "mimetype": mimetype,
+        "file_size": attachment.file_size,
+    }
+    if is_text:
+        try:
+            result["text_content"] = base64.b64decode(raw_b64).decode("utf-8")
+        except Exception:
+            result["content_base64"] = raw_b64
+            result["decode_error"] = "File reported as text but could not be decoded as UTF-8"
+    else:
+        result["content_base64"] = raw_b64
+
+    return result
+
+
+def attach_file(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Upload a file attachment to a project task.
+
+    Requires params: task_id, filename, mimetype, content_base64.
+    The content_base64 value must be a valid base64-encoded string.
+    Files are capped at 5 MB; larger payloads are rejected before create().
+    """
+    _MAX_BYTES = 5 * 1024 * 1024
+    task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+
+    import base64
+    content_b64: str = str(params.get("content_base64") or "")
+    try:
+        raw = base64.b64decode(content_b64)
+    except Exception:
+        raise ValueError("content_base64 is not valid base64")
+    if len(raw) > _MAX_BYTES:
+        raise ValueError(f"Attachment exceeds 5 MB limit ({len(raw)} bytes)")
+
+    attachment = request.env["ir.attachment"].with_user(user).create({
+        "name": str(params["filename"]),
+        "mimetype": str(params.get("mimetype") or "application/octet-stream"),
+        "res_model": "project.task",
+        "res_id": task.id,
+        "datas": content_b64,
+    })
+    return {"id": attachment.id, "name": attachment.name, "message": "Attachment uploaded"}
+
+
+def add_followers(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Subscribe one or more partners as followers of a project task.
+
+    partner_emails: list of email addresses (or Odoo logins) to add.
+    Each is resolved to res.partner via email match; unresolved emails are skipped.
+    Followers receive Odoo chatter notifications on all future task updates.
+    """
+    task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+
+    partner_ids: list[int] = []
+    for email in (params.get("partner_emails") or []):
+        email = str(email).strip()
+        if not email:
+            continue
+        partner = request.env["res.partner"].sudo().search(
+            ["|", ("email", "=", email), ("user_ids.login", "=", email)], limit=1
+        )
+        if not partner:
+            # Log server-side only — do not expose existence information to callers.
+            _logger.warning("add_followers: no partner found for %r (task %s)", email, params["task_id"])
+        elif not _is_internal_user(partner):
+            # Only subscribe internal users; reject portal/external partners to prevent
+            # leaking task content to accounts outside the organisation.
+            _logger.warning("add_followers: rejected external partner %r (task %s)", email, params["task_id"])
+        else:
+            partner_ids.append(partner.id)
+
+    if partner_ids:
+        task.message_subscribe(partner_ids=partner_ids)
+
+    return {"id": task.id, "added": len(partner_ids), "message": "Followers updated"}
+
+
+def remove_followers(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Unsubscribe one or more partners from a project task's followers.
+
+    partner_emails: list of email addresses (or Odoo logins) to remove.
+    """
+    task = request.env["project.task"].with_user(user).browse(int(params["task_id"])).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+
+    partner_ids: list[int] = []
+    for email in (params.get("partner_emails") or []):
+        email = str(email).strip()
+        if not email:
+            continue
+        partner = request.env["res.partner"].sudo().search(
+            ["|", ("email", "=", email), ("user_ids.login", "=", email)], limit=1
+        )
+        if partner:
+            partner_ids.append(partner.id)
+
+    if partner_ids:
+        task.message_unsubscribe(partner_ids=partner_ids)
+
+    return {"id": task.id, "removed": len(partner_ids), "message": "Followers removed"}

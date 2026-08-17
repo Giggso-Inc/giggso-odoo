@@ -30,9 +30,15 @@ def capabilities(user, _params: dict) -> dict:
             "project_list_projects",
             "project_list_tasks",
             "project_list_task_stages",
+            "project_get_task",
             "project_create_task",
+            "project_update_task",
             "project_move_task_stage",
             "project_add_comment",
+            "project_attach_file",
+            "project_read_attachment",
+            "project_add_followers",
+            "project_remove_followers",
         ]
     return {
         "odoo_user_login": user.login,
