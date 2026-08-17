@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from odoo.exceptions import AccessError
 from odoo.http import request
 
 from .utils import compact_records
+
+_logger = logging.getLogger(__name__)
+
+
+def _resolve_tag_ids(user, tag_names: list[str]) -> list[int]:
+    """Resolve tag names to IDs, creating missing tags when the user is a project manager."""
+    Tag = request.env["project.tags"].with_user(user)
+    tag_ids = []
+    for tag_name in tag_names:
+        tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
+        if not tag:
+            if not user.has_group("project.group_project_manager"):
+                raise ValueError(
+                    f"Tag '{tag_name}' does not exist and you do not have permission to create tags. "
+                    "Ask a project manager to create it first."
+                )
+            tag = Tag.create({"name": tag_name})
+        tag_ids.append(tag.id)
+    return tag_ids
+
+
+def _is_internal_user(partner) -> bool:
+    """Return True when the partner has at least one active internal (non-portal) Odoo user."""
+    return bool(partner.user_ids.filtered(lambda u: u.active and not u.share))
 
 
 PROJECT_FIELDS = ["id", "name", "user_id", "partner_id", "company_id"]
@@ -150,25 +175,22 @@ def create_task(user, params: dict[str, Any]) -> dict[str, Any]:
         # Default to the authenticated actor — never let default_get pick Public.
         vals["user_ids"] = [(4, user.id)]
 
-    # Optional subtask parent linkage.
+    # Optional subtask parent linkage — access-checked so callers cannot
+    # enumerate tasks outside their visibility by trying arbitrary IDs.
     if params.get("parent_id"):
-        vals["parent_id"] = int(params["parent_id"])
+        parent = (
+            request.env["project.task"]
+            .with_user(user)
+            .browse(int(params["parent_id"]))
+            .exists()
+        )
+        if not parent:
+            raise ValueError("Parent task not found or not visible")
+        vals["parent_id"] = parent.id
 
     tag_names: list[str] = [n.strip() for n in (params.get("tag_names") or []) if n and n.strip()]
     if tag_names:
-        Tag = request.env["project.tags"].with_user(user)
-        tag_ids = []
-        for tag_name in tag_names:
-            tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
-            if not tag:
-                if not user.has_group("project.group_project_manager"):
-                    raise ValueError(
-                        f"Tag '{tag_name}' does not exist and you do not have permission to create tags. "
-                        "Ask a project manager to create it first."
-                    )
-                tag = Tag.create({"name": tag_name})
-            tag_ids.append(tag.id)
-        vals["tag_ids"] = [(6, 0, tag_ids)]
+        vals["tag_ids"] = [(6, 0, _resolve_tag_ids(user, tag_names))]
 
     task = request.env["project.task"].with_user(user).create(vals)
     return {"id": task.id, "name": task.name, "message": "Project task created"}
@@ -202,7 +224,9 @@ def add_comment(user, params: dict[str, Any]) -> dict[str, Any]:
         partner = request.env["res.partner"].sudo().search(
             ["|", ("email", "=", email), ("user_ids.login", "=", email)], limit=1
         )
-        if partner:
+        # Only notify internal users — skip portal/external partners to prevent
+        # leaking task content to accounts outside the organisation.
+        if partner and _is_internal_user(partner):
             partner_ids.append(partner.id)
 
     task.message_post(
@@ -222,22 +246,22 @@ def update_task(user, params: dict[str, Any]) -> dict[str, Any]:
     values = dict(params.get("values") or {})
 
     if params.get("parent_id") is not None:
-        values["parent_id"] = int(params["parent_id"]) if params["parent_id"] else False
+        if params["parent_id"]:
+            parent = (
+                request.env["project.task"]
+                .with_user(user)
+                .browse(int(params["parent_id"]))
+                .exists()
+            )
+            if not parent:
+                raise ValueError("Parent task not found or not visible")
+            values["parent_id"] = parent.id
+        else:
+            values["parent_id"] = False
 
     tag_names: list[str] = [n.strip() for n in (params.get("tag_names") or []) if n and n.strip()]
     if tag_names:
-        Tag = request.env["project.tags"].with_user(user)
-        tag_ids = []
-        for tag_name in tag_names:
-            tag = Tag.search([("name", "=ilike", tag_name)], limit=1)
-            if not tag:
-                if not user.has_group("project.group_project_manager"):
-                    raise ValueError(
-                        f"Tag '{tag_name}' does not exist and you do not have permission to create tags."
-                    )
-                tag = Tag.create({"name": tag_name})
-            tag_ids.append(tag.id)
-        values["tag_ids"] = [(6, 0, tag_ids)]
+        values["tag_ids"] = [(6, 0, _resolve_tag_ids(user, tag_names))]
 
     if not values:
         raise ValueError("No fields to update")
@@ -316,6 +340,7 @@ def get_task(user, params: dict[str, Any]) -> dict[str, Any]:
         else:
             record["followers"] = []
     except Exception:
+        _logger.warning("get_task: failed to load followers for task %s", task.id, exc_info=True)
         record["followers"] = []
 
     # Chatter comments — public only (exclude internal notes).
@@ -397,7 +422,7 @@ def get_attachment(user, params: dict[str, Any]) -> dict[str, Any]:
     if is_text:
         try:
             result["text_content"] = base64.b64decode(raw_b64).decode("utf-8")
-        except (UnicodeDecodeError, Exception):
+        except Exception:
             result["content_base64"] = raw_b64
             result["decode_error"] = "File reported as text but could not be decoded as UTF-8"
     else:
@@ -449,7 +474,6 @@ def add_followers(user, params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Project task not found or not visible")
 
     partner_ids: list[int] = []
-    not_found: list[str] = []
     for email in (params.get("partner_emails") or []):
         email = str(email).strip()
         if not email:
@@ -457,18 +481,20 @@ def add_followers(user, params: dict[str, Any]) -> dict[str, Any]:
         partner = request.env["res.partner"].sudo().search(
             ["|", ("email", "=", email), ("user_ids.login", "=", email)], limit=1
         )
-        if partner:
-            partner_ids.append(partner.id)
+        if not partner:
+            # Log server-side only — do not expose existence information to callers.
+            _logger.warning("add_followers: no partner found for %r (task %s)", email, params["task_id"])
+        elif not _is_internal_user(partner):
+            # Only subscribe internal users; reject portal/external partners to prevent
+            # leaking task content to accounts outside the organisation.
+            _logger.warning("add_followers: rejected external partner %r (task %s)", email, params["task_id"])
         else:
-            not_found.append(email)
+            partner_ids.append(partner.id)
 
     if partner_ids:
         task.message_subscribe(partner_ids=partner_ids)
 
-    result: dict[str, Any] = {"id": task.id, "added": len(partner_ids), "message": "Followers updated"}
-    if not_found:
-        result["not_found"] = not_found
-    return result
+    return {"id": task.id, "added": len(partner_ids), "message": "Followers updated"}
 
 
 def remove_followers(user, params: dict[str, Any]) -> dict[str, Any]:

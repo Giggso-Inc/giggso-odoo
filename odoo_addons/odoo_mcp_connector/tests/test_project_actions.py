@@ -1,10 +1,11 @@
-"""Unit tests for project_actions — create_task and list_tasks.
+"""Unit tests for project_actions — create_task, list_tasks, and security guards.
 
 create_task covers:
   - assignee_email resolves to a valid user → task created with that user
   - assignee_email provided but no matching user → ValueError raised
   - no assignee_email → task assigned to the authenticated actor
   - user_ids already in values → not overridden by the actor fallback
+  - parent_id resolves → set on task; inaccessible parent → ValueError
 
 list_tasks covers:
   - no filters → empty domain
@@ -15,10 +16,29 @@ list_tasks covers:
   - filter by state → ("state", "=", value) in domain
   - create_date present in TASK_FIELDS constant
 
+add_followers security covers:
+  - external (portal) partner is silently rejected — not subscribed
+  - unknown email is skipped — response never exposes not_found list
+  - internal user is subscribed normally
+
+add_comment security covers:
+  - external partner email is excluded from partner_ids passed to message_post
+
+get_attachment covers:
+  - text file returns text_content; binary file returns content_base64
+  - file over 5 MB is rejected
+
+attach_file covers:
+  - invalid base64 raises ValueError
+
+parent_id access-check covers:
+  - inaccessible parent in update_task raises ValueError
+
 Odoo's ORM is mocked; no live Odoo instance is required.
 """
 from __future__ import annotations
 
+import base64
 import sys
 from unittest.mock import MagicMock, call, patch
 
@@ -28,6 +48,11 @@ import pytest
 project_actions = sys.modules["odoo_mcp_connector.controllers.project_actions"]
 create_task = project_actions.create_task
 list_tasks = project_actions.list_tasks
+add_followers = project_actions.add_followers
+add_comment = project_actions.add_comment
+get_attachment = project_actions.get_attachment
+attach_file = project_actions.attach_file
+update_task = project_actions.update_task
 
 
 # ---------------------------------------------------------------------------
@@ -302,3 +327,346 @@ class TestListTasksFilters:
         assert "|" in domain
         assert ("create_uid.login", "=", "dev@example.com") in domain
         assert ("create_uid.email", "=", "dev@example.com") in domain
+
+
+# ---------------------------------------------------------------------------
+# parent_id access-check tests
+# ---------------------------------------------------------------------------
+
+def _patch_request_with_parent(parent_task=None):
+    """Patch request.env for create_task / update_task with parent task control."""
+    mock_request = MagicMock(name="request")
+    captured = {}
+
+    users_env = MagicMock()
+    empty_user = MagicMock()
+    empty_user.__bool__ = MagicMock(return_value=False)
+    users_env.sudo.return_value.search.return_value = empty_user
+
+    task_env = MagicMock()
+    created = _make_task(tid=99)
+    task_env.with_user.return_value.create.return_value = created
+
+    # Parent browse — return falsy when parent is None (inaccessible)
+    parent_browse = MagicMock()
+    parent_browse.exists.return_value = parent_task  # None → falsy, MagicMock → truthy
+    if parent_task is None:
+        parent_browse.exists.return_value = MagicMock(__bool__=MagicMock(return_value=False))
+    task_env.with_user.return_value.browse.return_value = parent_browse
+
+    def env_getitem(model):
+        if model == "res.users":
+            return users_env
+        if model == "project.task":
+            return task_env
+        if model == "project.tags":
+            return MagicMock()
+        return MagicMock()
+
+    mock_request.env.__getitem__.side_effect = env_getitem
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx, mock_request
+
+
+class TestParentIdAccessCheck:
+    def test_inaccessible_parent_in_create_task_raises(self):
+        actor = _make_user(uid=5)
+        ctx, _ = _patch_request_with_parent(parent_task=None)
+        with ctx:
+            with pytest.raises(ValueError, match="Parent task not found or not visible"):
+                create_task(
+                    actor,
+                    {"values": {"project_id": 1, "name": "Sub"}, "parent_id": 9999},
+                )
+
+    def test_accessible_parent_in_create_task_sets_field(self):
+        actor = _make_user(uid=5)
+        parent = _make_task(tid=10)
+        ctx, mock_request = _patch_request_with_parent(parent_task=parent)
+        with ctx:
+            result = create_task(
+                actor,
+                {"values": {"project_id": 1, "name": "Sub"}, "parent_id": 10},
+            )
+        vals = mock_request.env["project.task"].with_user.return_value.create.call_args[0][0]
+        assert vals.get("parent_id") == parent.id
+
+    def test_inaccessible_parent_in_update_task_raises(self):
+        actor = _make_user(uid=5)
+        # update_task first browses the task itself (task_id), then browses parent_id.
+        mock_request = MagicMock(name="request")
+        existing_task = _make_task(tid=42)
+
+        call_count = {"n": 0}
+
+        def browse_side_effect(record_id):
+            call_count["n"] += 1
+            m = MagicMock()
+            if call_count["n"] == 1:
+                # First browse: the task itself — must exist
+                m.exists.return_value = existing_task
+            else:
+                # Second browse: parent — must be inaccessible
+                inaccessible = MagicMock()
+                inaccessible.__bool__ = MagicMock(return_value=False)
+                m.exists.return_value = inaccessible
+            return m
+
+        task_env = MagicMock()
+        task_env.with_user.return_value.browse.side_effect = browse_side_effect
+
+        mock_request.env.__getitem__.side_effect = lambda model: task_env if model == "project.task" else MagicMock()
+
+        with patch.object(project_actions, "request", mock_request):
+            with pytest.raises(ValueError, match="Parent task not found or not visible"):
+                update_task(
+                    actor,
+                    {"task_id": 42, "values": {"name": "Updated"}, "parent_id": 9999},
+                )
+
+
+# ---------------------------------------------------------------------------
+# add_followers security tests
+# ---------------------------------------------------------------------------
+
+def _make_partner(pid: int = 1, is_internal: bool = True) -> MagicMock:
+    partner = MagicMock(name=f"partner_{pid}")
+    partner.id = pid
+    user = MagicMock()
+    user.active = True
+    user.share = not is_internal  # share=True → portal/external
+    partner.user_ids.filtered.return_value = [user] if is_internal else []
+    partner.__bool__ = MagicMock(return_value=True)
+    return partner
+
+
+def _patch_followers_request(task_exists=True, partner=None):
+    mock_request = MagicMock(name="request")
+
+    task_mock = MagicMock()
+    task_mock.__bool__ = MagicMock(return_value=task_exists)
+    task_mock.id = 42
+
+    task_env = MagicMock()
+    task_env.with_user.return_value.browse.return_value.exists.return_value = task_mock if task_exists else MagicMock(__bool__=MagicMock(return_value=False))
+
+    partner_env = MagicMock()
+    if partner is None:
+        empty = MagicMock()
+        empty.__bool__ = MagicMock(return_value=False)
+        partner_env.sudo.return_value.search.return_value = empty
+    else:
+        partner_env.sudo.return_value.search.return_value = partner
+
+    def env_getitem(model):
+        if model == "project.task":
+            return task_env
+        if model == "res.partner":
+            return partner_env
+        return MagicMock()
+
+    mock_request.env.__getitem__.side_effect = env_getitem
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx, task_mock
+
+
+class TestAddFollowersSecurity:
+    def test_internal_user_is_subscribed(self):
+        partner = _make_partner(pid=55, is_internal=True)
+        ctx, task_mock = _patch_followers_request(partner=partner)
+        with ctx:
+            result = add_followers(_make_user(), {"task_id": 42, "partner_emails": ["alice@example.com"]})
+        assert result["added"] == 1
+        task_mock.message_subscribe.assert_called_once_with(partner_ids=[55])
+
+    def test_external_partner_is_rejected_silently(self):
+        partner = _make_partner(pid=77, is_internal=False)
+        ctx, task_mock = _patch_followers_request(partner=partner)
+        with ctx:
+            result = add_followers(_make_user(), {"task_id": 42, "partner_emails": ["external@vendor.com"]})
+        assert result["added"] == 0
+        task_mock.message_subscribe.assert_not_called()
+
+    def test_unknown_email_not_exposed_in_response(self):
+        ctx, task_mock = _patch_followers_request(partner=None)
+        with ctx:
+            result = add_followers(_make_user(), {"task_id": 42, "partner_emails": ["ghost@example.com"]})
+        assert result["added"] == 0
+        assert "not_found" not in result, "Enumeration oracle: not_found must not be in the response"
+        task_mock.message_subscribe.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# add_comment security tests
+# ---------------------------------------------------------------------------
+
+def _patch_comment_request(task_exists=True, partner=None):
+    mock_request = MagicMock(name="request")
+
+    task_mock = MagicMock()
+    task_mock.__bool__ = MagicMock(return_value=task_exists)
+    task_mock.id = 42
+
+    task_env = MagicMock()
+    task_env.with_user.return_value.browse.return_value.exists.return_value = task_mock if task_exists else MagicMock(__bool__=MagicMock(return_value=False))
+
+    partner_env = MagicMock()
+    if partner is None:
+        empty = MagicMock()
+        empty.__bool__ = MagicMock(return_value=False)
+        partner_env.sudo.return_value.search.return_value = empty
+    else:
+        partner_env.sudo.return_value.search.return_value = partner
+
+    def env_getitem(model):
+        if model == "project.task":
+            return task_env
+        if model == "res.partner":
+            return partner_env
+        return MagicMock()
+
+    mock_request.env.__getitem__.side_effect = env_getitem
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx, task_mock
+
+
+class TestAddCommentSecurity:
+    def test_external_partner_excluded_from_notifications(self):
+        partner = _make_partner(pid=88, is_internal=False)
+        ctx, task_mock = _patch_comment_request(partner=partner)
+        with ctx:
+            result = add_comment(
+                _make_user(),
+                {"task_id": 42, "comment": "Hello", "partner_emails": ["external@vendor.com"]},
+            )
+        # message_post must be called with empty partner_ids — external excluded.
+        call_kwargs = task_mock.message_post.call_args[1]
+        assert call_kwargs["partner_ids"] == []
+        assert result["notified"] == 0
+
+    def test_internal_user_included_in_notifications(self):
+        partner = _make_partner(pid=99, is_internal=True)
+        ctx, task_mock = _patch_comment_request(partner=partner)
+        with ctx:
+            result = add_comment(
+                _make_user(),
+                {"task_id": 42, "comment": "Hello", "partner_emails": ["alice@example.com"]},
+            )
+        call_kwargs = task_mock.message_post.call_args[1]
+        assert 99 in call_kwargs["partner_ids"]
+        assert result["notified"] == 1
+
+
+# ---------------------------------------------------------------------------
+# get_attachment tests
+# ---------------------------------------------------------------------------
+
+def _patch_attachment_request(attachment=None):
+    mock_request = MagicMock(name="request")
+    attach_env = MagicMock()
+    attach_env.with_user.return_value.browse.return_value.exists.return_value = attachment
+    mock_request.env.__getitem__.side_effect = lambda model: attach_env if model == "ir.attachment" else MagicMock()
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx
+
+
+def _make_attachment(aid: int = 1, mimetype: str = "text/plain", content: bytes = b"hello", file_size: int = 5):
+    a = MagicMock(name=f"attachment_{aid}")
+    a.id = aid
+    a.name = "file.txt"
+    a.mimetype = mimetype
+    a.file_size = file_size
+    a.datas = base64.b64encode(content).decode()
+    a.__bool__ = MagicMock(return_value=True)
+    return a
+
+
+class TestGetAttachment:
+    def test_text_file_returns_text_content(self):
+        att = _make_attachment(mimetype="text/plain", content=b"# Title\nBody text")
+        ctx = _patch_attachment_request(attachment=att)
+        with ctx:
+            result = get_attachment(_make_user(), {"attachment_id": 1})
+        assert "text_content" in result
+        assert result["text_content"] == "# Title\nBody text"
+        assert "content_base64" not in result
+
+    def test_binary_file_returns_base64(self):
+        att = _make_attachment(mimetype="application/pdf", content=b"\x25\x50\x44\x46")
+        ctx = _patch_attachment_request(attachment=att)
+        with ctx:
+            result = get_attachment(_make_user(), {"attachment_id": 1})
+        assert "content_base64" in result
+        assert "text_content" not in result
+
+    def test_file_over_5mb_is_rejected(self):
+        att = _make_attachment(file_size=6 * 1024 * 1024)
+        ctx = _patch_attachment_request(attachment=att)
+        with ctx:
+            with pytest.raises(ValueError, match="5 MB"):
+                get_attachment(_make_user(), {"attachment_id": 1})
+
+    def test_missing_attachment_raises(self):
+        empty = MagicMock()
+        empty.__bool__ = MagicMock(return_value=False)
+        ctx = _patch_attachment_request(attachment=empty)
+        with ctx:
+            with pytest.raises(ValueError, match="not found"):
+                get_attachment(_make_user(), {"attachment_id": 9999})
+
+
+# ---------------------------------------------------------------------------
+# attach_file tests
+# ---------------------------------------------------------------------------
+
+def _patch_attach_file_request(task_exists=True):
+    mock_request = MagicMock(name="request")
+
+    task_mock = MagicMock()
+    task_mock.__bool__ = MagicMock(return_value=task_exists)
+    task_mock.id = 42
+
+    task_env = MagicMock()
+    task_env.with_user.return_value.browse.return_value.exists.return_value = task_mock if task_exists else MagicMock(__bool__=MagicMock(return_value=False))
+
+    attach_env = MagicMock()
+    created = MagicMock()
+    created.id = 101
+    created.name = "report.pdf"
+    attach_env.with_user.return_value.create.return_value = created
+
+    def env_getitem(model):
+        if model == "project.task":
+            return task_env
+        if model == "ir.attachment":
+            return attach_env
+        return MagicMock()
+
+    mock_request.env.__getitem__.side_effect = env_getitem
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx
+
+
+class TestAttachFile:
+    def test_invalid_base64_raises(self):
+        ctx = _patch_attach_file_request()
+        with ctx:
+            with pytest.raises(ValueError, match="not valid base64"):
+                attach_file(_make_user(), {
+                    "task_id": 42,
+                    "filename": "bad.txt",
+                    "content_base64": "!!!not-base64!!!",
+                })
+
+    def test_valid_upload_returns_id(self):
+        content_b64 = base64.b64encode(b"PDF content").decode()
+        ctx = _patch_attach_file_request()
+        with ctx:
+            result = attach_file(_make_user(), {
+                "task_id": 42,
+                "filename": "report.pdf",
+                "mimetype": "application/pdf",
+                "content_base64": content_b64,
+            })
+        assert result["id"] == 101
+        assert result["message"] == "Attachment uploaded"

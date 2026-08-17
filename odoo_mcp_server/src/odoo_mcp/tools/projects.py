@@ -323,7 +323,7 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         to the task (comments, stage moves, field changes).
 
         partner_emails: list of email addresses or Odoo logins to subscribe.
-        Unresolvable emails are reported in the "not_found" key of the response.
+        Only internal Odoo users are subscribed; portal/external partners are silently skipped.
         """
         actor_email = authenticated_login()
         result = services.call_odoo(
