@@ -29,12 +29,13 @@ def search_opportunities(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     query = params.get("query")
     domain: list[Any] = []
     if query:
-        # OR across title, customer email (exact), and contact name (partial).
-        # email_from uses exact match to avoid partial-email false positives.
+        # OR across title, customer email (exact, case-insensitive), and contact name (partial).
+        # email_from uses =ilike (exact, no wildcards) to avoid partial-email false positives
+        # while still matching regardless of the caller's casing.
         domain = [
             "|", "|",
             ("name", "ilike", query),
-            ("email_from", "=", query),
+            ("email_from", "=ilike", query),
             ("contact_name", "ilike", query),
         ]
     records = request.env["crm.lead"].with_user(user).search_read(

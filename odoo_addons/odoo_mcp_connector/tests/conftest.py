@@ -72,6 +72,7 @@ def _load(dotted_name: str, file_path: Path) -> types.ModuleType:
     return mod
 
 
-# Load utils first — project_actions depends on it via relative import.
+# Load utils first — project_actions and crm_actions depend on it.
 _load("odoo_mcp_connector.controllers.utils", CONTROLLERS_DIR / "utils.py")
 _load("odoo_mcp_connector.controllers.project_actions", CONTROLLERS_DIR / "project_actions.py")
+_load("odoo_mcp_connector.controllers.crm_actions", CONTROLLERS_DIR / "crm_actions.py")
