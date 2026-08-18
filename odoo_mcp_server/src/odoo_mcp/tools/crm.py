@@ -15,7 +15,12 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
         query: str = "",
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        """Search CRM leads/opportunities visible to the given Odoo user."""
+        """Search CRM leads/opportunities visible to the given Odoo user.
+
+        query: matches opportunity title (partial), customer email (exact), or
+        contact name (partial). Pass a customer email to check for existing leads
+        before creating a new one.
+        """
         actor_email = authenticated_login()
         result = services.call_odoo(
             actor_email=actor_email, module="crm", action="search_opportunities",

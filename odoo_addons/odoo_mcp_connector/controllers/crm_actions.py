@@ -26,7 +26,17 @@ CRM_FIELDS = [
 
 def search_opportunities(user, params: dict[str, Any]) -> list[dict[str, Any]]:
     """Search CRM leads and opportunities visible to the mapped user."""
-    domain = [("name", "ilike", params["query"])] if params.get("query") else []
+    query = params.get("query")
+    domain: list[Any] = []
+    if query:
+        # OR across title, customer email (exact), and contact name (partial).
+        # email_from uses exact match to avoid partial-email false positives.
+        domain = [
+            "|", "|",
+            ("name", "ilike", query),
+            ("email_from", "=", query),
+            ("contact_name", "ilike", query),
+        ]
     records = request.env["crm.lead"].with_user(user).search_read(
         domain,
         CRM_FIELDS,
