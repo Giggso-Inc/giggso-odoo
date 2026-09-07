@@ -14,6 +14,8 @@ from . import (
     crm_actions,
     expense_actions,
     hr_actions,
+    partner_activity_actions,
+    partner_actions,
     project_actions,
     recruit_actions,
     sale_actions,
@@ -36,6 +38,7 @@ HANDLERS = {
     ("crm", "update_opportunity"): crm_actions.update_opportunity,
     ("crm", "delete_lead"): crm_actions.delete_lead,
     ("crm", "schedule_activity"): activity_actions.schedule_activity,
+    ("crm", "post_message"): crm_actions.crm_post_message,
     # project
     ("project", "list_projects"): project_actions.list_projects,
     ("project", "list_tasks"): project_actions.list_tasks,
@@ -50,6 +53,18 @@ HANDLERS = {
     ("project", "attach_file"): project_actions.attach_file,
     ("project", "add_followers"): project_actions.add_followers,
     ("project", "remove_followers"): project_actions.remove_followers,
+    ("project", "set_task_state"): project_actions.set_task_state,
+    ("project", "get_tasks_bulk"): project_actions.get_tasks_bulk,
+    # activity
+    ("activity", "list"): activity_actions.list_activities,
+    ("activity", "mark_done"): activity_actions.mark_activity_done,
+    # partner
+    ("partner", "find_by_email"): partner_actions.find_partner_by_email,
+    ("partner", "create"): partner_actions.create_partner,
+    ("partner", "enrich"): partner_actions.enrich_partner,
+    ("partner", "find_or_enrich"): partner_actions.find_or_enrich_partner,
+    ("partner", "schedule_activity"): partner_activity_actions.partner_schedule_activity,
+    ("partner", "post_message"): partner_activity_actions.partner_post_message,
     # recruit
     ("recruit", "list_jobs"): recruit_actions.list_jobs,
     ("recruit", "list_applicants"): recruit_actions.list_applicants,

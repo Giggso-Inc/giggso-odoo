@@ -53,6 +53,8 @@ add_comment = project_actions.add_comment
 get_attachment = project_actions.get_attachment
 attach_file = project_actions.attach_file
 update_task = project_actions.update_task
+set_task_state = project_actions.set_task_state
+get_tasks_bulk = project_actions.get_tasks_bulk
 
 
 # ---------------------------------------------------------------------------
@@ -670,3 +672,210 @@ class TestAttachFile:
             })
         assert result["id"] == 101
         assert result["message"] == "Attachment uploaded"
+
+
+# ---------------------------------------------------------------------------
+# list_tasks field enrichment tests
+# ---------------------------------------------------------------------------
+
+class TestListTasksEnrichment:
+    def test_description_in_task_fields_constant(self):
+        assert "description" in project_actions.TASK_FIELDS
+
+    def test_write_date_in_task_fields_constant(self):
+        assert "write_date" in project_actions.TASK_FIELDS
+
+    def test_user_ids_enriched_to_name_email_dicts(self):
+        mock_request = MagicMock(name="request")
+        task_env = MagicMock()
+        rows = [{"id": 1, "user_ids": [3, 7]}]
+        task_env.with_user.return_value.search_read.return_value = rows
+
+        users_env = MagicMock()
+        users_env.with_user.return_value.browse.return_value.read.return_value = [
+            {"id": 3, "name": "Alice", "email": "alice@example.com"},
+            {"id": 7, "name": "Bob", "email": "bob@example.com"},
+        ]
+
+        def env_getitem(model):
+            if model == "project.task":
+                return task_env
+            if model == "res.users":
+                return users_env
+            return MagicMock()
+
+        mock_request.env.__getitem__.side_effect = env_getitem
+        with patch.object(project_actions, "request", mock_request):
+            result = list_tasks(_make_user(), {})
+
+        task = result["tasks"][0]
+        assert task["user_ids"] == [
+            {"id": 3, "name": "Alice", "email": "alice@example.com"},
+            {"id": 7, "name": "Bob", "email": "bob@example.com"},
+        ]
+
+    def test_no_user_ids_skips_enrichment_query(self):
+        mock_request = MagicMock(name="request")
+        task_env = MagicMock()
+        task_env.with_user.return_value.search_read.return_value = [{"id": 1}]
+        users_env = MagicMock()
+
+        def env_getitem(model):
+            if model == "project.task":
+                return task_env
+            if model == "res.users":
+                return users_env
+            return MagicMock()
+
+        mock_request.env.__getitem__.side_effect = env_getitem
+        with patch.object(project_actions, "request", mock_request):
+            list_tasks(_make_user(), {})
+
+        users_env.with_user.return_value.browse.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# set_task_state tests
+# ---------------------------------------------------------------------------
+
+def _patch_state_request(task_exists=True):
+    mock_request = MagicMock(name="request")
+    task_mock = MagicMock()
+    task_mock.__bool__ = MagicMock(return_value=task_exists)
+    task_mock.id = 42
+
+    task_env = MagicMock()
+    task_env.with_user.return_value.browse.return_value.exists.return_value = (
+        task_mock if task_exists else MagicMock(__bool__=MagicMock(return_value=False))
+    )
+    mock_request.env.__getitem__.side_effect = (
+        lambda model: task_env if model == "project.task" else MagicMock()
+    )
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx, task_mock
+
+
+class TestSetTaskState:
+    def test_valid_state_writes_field(self):
+        ctx, task_mock = _patch_state_request()
+        with ctx:
+            result = set_task_state(_make_user(), {"task_id": 42, "state": "approved"})
+        assert result["state"] == "approved"
+        task_mock.write.assert_called_once_with({"state": "approved"})
+
+    def test_invalid_state_raises(self):
+        ctx, _ = _patch_state_request()
+        with ctx:
+            with pytest.raises(ValueError, match="Invalid state"):
+                set_task_state(_make_user(), {"task_id": 42, "state": "bogus"})
+
+    def test_invisible_task_raises(self):
+        ctx, _ = _patch_state_request(task_exists=False)
+        with ctx:
+            with pytest.raises(ValueError, match="not found or not visible"):
+                set_task_state(_make_user(), {"task_id": 999, "state": "done"})
+
+    def test_missing_task_id_raises(self):
+        ctx, _ = _patch_state_request()
+        with ctx:
+            with pytest.raises(ValueError, match="task_id is required"):
+                set_task_state(_make_user(), {"state": "done"})
+
+
+# ---------------------------------------------------------------------------
+# get_tasks_bulk tests
+# ---------------------------------------------------------------------------
+
+def _patch_bulk_request(rows=None):
+    mock_request = MagicMock(name="request")
+    task_env = MagicMock()
+    task_env.with_user.return_value.browse.return_value.exists.return_value.read.return_value = rows or []
+    users_env = MagicMock()
+    users_env.with_user.return_value.browse.return_value.read.return_value = []
+    tags_env = MagicMock()
+    tags_env.sudo.return_value.browse.return_value.read.return_value = []
+
+    def env_getitem(model):
+        if model == "project.task":
+            return task_env
+        if model == "res.users":
+            return users_env
+        if model == "project.tags":
+            return tags_env
+        return MagicMock()
+
+    mock_request.env.__getitem__.side_effect = env_getitem
+    ctx = patch.object(project_actions, "request", mock_request)
+    return ctx, task_env
+
+
+class TestGetTasksBulk:
+    def test_two_visible_ids_returned(self):
+        rows = [{"id": 1, "name": "Task A"}, {"id": 2, "name": "Task B"}]
+        ctx, _ = _patch_bulk_request(rows=rows)
+        with ctx:
+            result = get_tasks_bulk(_make_user(), {"task_ids": [1, 2]})
+        assert result["count"] == 2
+        assert {t["id"] for t in result["tasks"]} == {1, 2}
+
+    def test_ids_capped_at_100(self):
+        ctx, task_env = _patch_bulk_request(rows=[])
+        with ctx:
+            get_tasks_bulk(_make_user(), {"task_ids": list(range(150))})
+        browse_call_ids = task_env.with_user.return_value.browse.call_args[0][0]
+        assert len(browse_call_ids) == 100
+
+    def test_empty_list_raises(self):
+        ctx, _ = _patch_bulk_request()
+        with ctx:
+            with pytest.raises(ValueError, match="non-empty list"):
+                get_tasks_bulk(_make_user(), {"task_ids": []})
+
+    def test_missing_task_ids_raises(self):
+        ctx, _ = _patch_bulk_request()
+        with ctx:
+            with pytest.raises(ValueError, match="non-empty list"):
+                get_tasks_bulk(_make_user(), {})
+
+    def test_no_matching_records_returns_empty(self):
+        ctx, _ = _patch_bulk_request(rows=[])
+        with ctx:
+            result = get_tasks_bulk(_make_user(), {"task_ids": [1, 2]})
+        assert result == {"tasks": [], "count": 0}
+
+    def test_tag_enrichment_uses_sudo_and_populates_names(self):
+        mock_request = MagicMock(name="request")
+        rows = [{"id": 1, "name": "Task A", "tag_ids": [10, 11]}]
+
+        task_env = MagicMock()
+        task_env.with_user.return_value.browse.return_value.exists.return_value.read.return_value = rows
+        users_env = MagicMock()
+        users_env.with_user.return_value.browse.return_value.read.return_value = []
+        tags_env = MagicMock()
+        tags_env.sudo.return_value.browse.return_value.read.return_value = [
+            {"id": 10, "name": "Urgent"},
+            {"id": 11, "name": "Billing"},
+        ]
+
+        def env_getitem(model):
+            if model == "project.task":
+                return task_env
+            if model == "res.users":
+                return users_env
+            if model == "project.tags":
+                return tags_env
+            return MagicMock()
+
+        mock_request.env.__getitem__.side_effect = env_getitem
+        with patch.object(project_actions, "request", mock_request):
+            result = get_tasks_bulk(_make_user(), {"task_ids": [1]})
+
+        assert result["tasks"][0]["tag_ids"] == [
+            {"id": 10, "name": "Urgent"},
+            {"id": 11, "name": "Billing"},
+        ]
+        # Tag names are looked up via sudo() (matches the existing get_task
+        # pattern) — guard against this accidentally being downgraded to
+        # with_user(), which could raise AccessError for non-manager callers.
+        tags_env.sudo.assert_called()
+        tags_env.with_user.assert_not_called()

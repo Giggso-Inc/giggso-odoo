@@ -24,6 +24,7 @@ def capabilities(user, _params: dict) -> dict:
             "crm_create_lead",
             "crm_add_note",
             "crm_update_stage",
+            "crm_post_message",
         ]
     if request.env["project.task"].with_user(user).check_access_rights("read", raise_exception=False):
         tools["project"] = [
@@ -39,6 +40,22 @@ def capabilities(user, _params: dict) -> dict:
             "project_read_attachment",
             "project_add_followers",
             "project_remove_followers",
+            "project_set_task_state",
+            "project_get_tasks_bulk",
+        ]
+    if request.env["mail.activity"].with_user(user).check_access_rights("read", raise_exception=False):
+        tools["activity"] = [
+            "activity_list",
+            "activity_mark_done",
+        ]
+    if request.env["res.partner"].with_user(user).check_access_rights("read", raise_exception=False):
+        tools["partner"] = [
+            "partner_find_by_email",
+            "partner_create",
+            "partner_enrich",
+            "partner_find_or_enrich",
+            "partner_schedule_activity",
+            "partner_post_message",
         ]
     return {
         "odoo_user_login": user.login,

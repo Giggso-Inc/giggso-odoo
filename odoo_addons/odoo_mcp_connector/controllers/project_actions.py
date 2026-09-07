@@ -45,6 +45,7 @@ TASK_DETAIL_FIELDS = [
 TASK_FIELDS = [
     "id",
     "name",
+    "description",
     "project_id",
     "stage_id",
     "user_ids",
@@ -56,7 +57,36 @@ TASK_FIELDS = [
     "state",
     "activity_state",
     "create_date",
+    "write_date",
 ]
+_VALID_TASK_STATES = frozenset(
+    {"in_progress", "changes_requested", "approved", "cancelled", "done"}
+)
+_BULK_TASK_MAX = 100
+
+
+def _enrich_user_ids(user, records: list[dict[str, Any]]) -> None:
+    """Replace bare user_ids integer lists with [{id, name, email}] in place.
+
+    Falls back to {id, name} when the caller lacks res.users.email read access.
+    Uses a single batched read across all records — never per-record.
+    """
+    user_id_set: set[int] = set()
+    for r in records:
+        user_id_set.update(r.get("user_ids") or [])
+    if not user_id_set:
+        return
+    try:
+        rows = request.env["res.users"].with_user(user).browse(list(user_id_set)).read(
+            ["id", "name", "email"]
+        )
+    except AccessError:
+        rows = request.env["res.users"].with_user(user).browse(list(user_id_set)).read(
+            ["id", "name"]
+        )
+    user_map = {row["id"]: row for row in rows}
+    for r in records:
+        r["user_ids"] = [user_map[uid] for uid in (r.get("user_ids") or []) if uid in user_map]
 
 
 def list_projects(user, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -129,6 +159,7 @@ def list_tasks(user, params: dict[str, Any]) -> dict[str, Any]:
         limit=lim,
         order="write_date desc",
     )
+    _enrich_user_ids(user, records)
     items = compact_records(records)
     return {"tasks": items, "count": len(items), "truncated": len(items) >= lim}
 
@@ -521,3 +552,57 @@ def remove_followers(user, params: dict[str, Any]) -> dict[str, Any]:
         task.message_unsubscribe(partner_ids=partner_ids)
 
     return {"id": task.id, "removed": len(partner_ids), "message": "Followers removed"}
+
+
+def set_task_state(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Set the personal state (status pill) on a project task.
+
+    Distinct from the Kanban stage column (stage_id, changed via move_task_stage):
+    state is the per-user status indicator — in_progress / changes_requested /
+    approved / cancelled / done.
+    """
+    task_id = int(params.get("task_id") or 0)
+    state = str(params.get("state") or "").strip()
+    if not task_id:
+        raise ValueError("task_id is required")
+    if state not in _VALID_TASK_STATES:
+        raise ValueError(
+            f"Invalid state '{state}'. Must be one of: {', '.join(sorted(_VALID_TASK_STATES))}"
+        )
+    task = request.env["project.task"].with_user(user).browse(task_id).exists()
+    if not task:
+        raise ValueError("Project task not found or not visible")
+    task.write({"state": state})
+    return {"id": task.id, "state": state, "message": f"Task personal state set to '{state}'"}
+
+
+def get_tasks_bulk(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Fetch full detail for multiple project tasks in a single Odoo read() call.
+
+    Caps at 100 IDs. Tasks the caller cannot see are silently dropped by exists().
+    Does not include comments/attachments/followers — call get_task individually
+    for those, since they require per-record chatter queries.
+    """
+    raw_ids = params.get("task_ids") or []
+    if not raw_ids:
+        raise ValueError("task_ids is required and must be a non-empty list")
+    task_ids = [int(i) for i in raw_ids[:_BULK_TASK_MAX]]
+
+    Task = request.env["project.task"].with_user(user)
+    records = Task.browse(task_ids).exists().read(TASK_DETAIL_FIELDS)
+    if not records:
+        return {"tasks": [], "count": 0}
+
+    _enrich_user_ids(user, records)
+
+    tag_id_set: set[int] = set()
+    for r in records:
+        tag_id_set.update(r.get("tag_ids") or [])
+    if tag_id_set:
+        tag_rows = request.env["project.tags"].sudo().browse(list(tag_id_set)).read(["id", "name"])
+        tag_map = {t["id"]: t for t in tag_rows}
+        for r in records:
+            r["tag_ids"] = [tag_map[tid] for tid in (r.get("tag_ids") or []) if tid in tag_map]
+
+    items = compact_records(records)
+    return {"tasks": items, "count": len(items)}

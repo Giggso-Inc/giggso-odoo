@@ -351,3 +351,51 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
             params={"task_id": task_id, "partner_emails": partner_emails},
         )
         return dict(result)
+
+    @mcp.tool()
+    def project_set_task_state(
+        task_id: int,
+        state: str,
+    ) -> dict[str, Any]:
+        """Set the personal state (status pill) of a project task.
+
+        state must be one of: in_progress | changes_requested | approved | cancelled | done
+
+        NOTE: this is NOT the Kanban board column. Use project_move_task_stage
+        to change which column the task sits in; use this to change the
+        personal status indicator on the task card.
+        """
+        actor_email = authenticated_login()
+        result = services.call_odoo(
+            actor_email=actor_email, module="project", action="set_task_state",
+            params={"task_id": task_id, "state": state},
+        )
+        services.audit.write(
+            actor=actor_email, action="write.state", model="project.task",
+            record_id=task_id, payload={"state": state},
+        )
+        return dict(result)
+
+    @mcp.tool()
+    def project_get_tasks_bulk(
+        task_ids: list[int],
+    ) -> dict[str, Any]:
+        """Fetch full detail for multiple project tasks in one call (max 100 IDs).
+
+        Use after project_list_tasks returns a set of task IDs and you need
+        full field data (description, assignee names, tags, deadline, state)
+        for all of them without N sequential project_get_task calls.
+
+        Returns {"tasks": [...], "count": int}. Does NOT include comments,
+        attachments, or followers — call project_get_task individually for those.
+
+        Pattern:
+          1. project_list_tasks(project_id=X, limit=75) -> collect task ids
+          2. project_get_tasks_bulk(task_ids=[...]) -> full fields for all
+        """
+        actor_email = authenticated_login()
+        result = services.call_odoo(
+            actor_email=actor_email, module="project", action="get_tasks_bulk",
+            params={"task_ids": task_ids},
+        )
+        return dict(result)

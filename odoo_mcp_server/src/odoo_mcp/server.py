@@ -22,6 +22,8 @@ from .tools.crm import register_crm_tools
 from .tools.delete import register_delete_tools
 from .tools.expense import register_expense_tools
 from .tools.hr import register_hr_tools
+from .tools.partner_activity import register_partner_activity_tools
+from .tools.partners import register_partner_tools
 from .tools.projects import register_project_tools
 from .tools.recruit import register_recruit_tools
 from .tools.sale import register_sale_tools
@@ -56,6 +58,8 @@ def build_server() -> FastMCP:
     register_sale_tools(mcp, services)
     register_activity_tools(mcp, services)
     register_delete_tools(mcp, services)
+    register_partner_tools(mcp, services)
+    register_partner_activity_tools(mcp, services)
     return mcp
 
 

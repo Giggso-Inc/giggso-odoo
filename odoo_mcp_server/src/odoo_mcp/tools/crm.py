@@ -152,3 +152,26 @@ def register_crm_tools(mcp: FastMCP, services: AppServices) -> None:
             record_id=lead_id, payload={"fields": sorted(values.keys())},
         )
         return dict(result)
+
+    @mcp.tool()
+    def crm_post_message(
+        lead_id: int,
+        body: str,
+        message_type: str = "comment",
+    ) -> dict[str, Any]:
+        """Post a chatter message on a CRM lead/opportunity, visible to followers.
+
+        Use for HITL: "AI suggested action — approve?" on the lead chatter.
+        message_type: 'comment' (visible to followers) or 'notification' (internal).
+        Distinct from crm_add_note, which posts an internal-only note.
+        """
+        actor_email = authenticated_login()
+        result = services.call_odoo(
+            actor_email=actor_email, module="crm", action="post_message",
+            params={"lead_id": lead_id, "body": body, "message_type": message_type},
+        )
+        services.audit.write(
+            actor=actor_email, action="message_post", model="crm.lead",
+            record_id=lead_id, payload={"body_length": len(body)},
+        )
+        return dict(result)

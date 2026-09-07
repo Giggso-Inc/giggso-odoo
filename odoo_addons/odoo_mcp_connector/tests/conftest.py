@@ -33,9 +33,20 @@ _odoo_exceptions.UserError = UserError
 _odoo_exceptions.ValidationError = ValidationError
 _odoo.exceptions = _odoo_exceptions
 
+# odoo.fields — stub used by activity_actions (fields.Date.today()).
+_odoo_fields = types.ModuleType("odoo.fields")
+class _StubDate:
+    @staticmethod
+    def today():
+        import datetime as _dt
+        return _dt.date.today().isoformat()
+_odoo_fields.Date = _StubDate
+_odoo.fields = _odoo_fields
+
 sys.modules.setdefault("odoo", _odoo)
 sys.modules.setdefault("odoo.http", _odoo_http)
 sys.modules.setdefault("odoo.exceptions", _odoo_exceptions)
+sys.modules.setdefault("odoo.fields", _odoo_fields)
 
 # ---------------------------------------------------------------------------
 # 2. Make odoo_mcp_connector importable as a top-level package from
@@ -76,3 +87,10 @@ def _load(dotted_name: str, file_path: Path) -> types.ModuleType:
 _load("odoo_mcp_connector.controllers.utils", CONTROLLERS_DIR / "utils.py")
 _load("odoo_mcp_connector.controllers.project_actions", CONTROLLERS_DIR / "project_actions.py")
 _load("odoo_mcp_connector.controllers.crm_actions", CONTROLLERS_DIR / "crm_actions.py")
+_load("odoo_mcp_connector.controllers.activity_actions", CONTROLLERS_DIR / "activity_actions.py")
+_load("odoo_mcp_connector.controllers.partner_utils", CONTROLLERS_DIR / "partner_utils.py")
+_load("odoo_mcp_connector.controllers.partner_actions", CONTROLLERS_DIR / "partner_actions.py")
+_load(
+    "odoo_mcp_connector.controllers.partner_activity_actions",
+    CONTROLLERS_DIR / "partner_activity_actions.py",
+)
