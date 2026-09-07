@@ -60,24 +60,33 @@ def resolve_parent_company(user, company_name: str) -> int:
     return Partner.create({"name": company_name, "is_company": True}).id
 
 
+_OPTIONAL_SCALAR_FIELDS = (
+    "email", "phone", "mobile", "function", "street", "city", "zip", "website",
+)
+
+
 def format_partner(record: Any) -> dict[str, Any]:
-    """Serialise a res.partner record to a clean dict."""
+    """Serialise a res.partner record to a clean dict.
+
+    Uses getattr() with a fallback for the optional contact fields rather
+    than direct attribute access. Some Odoo deployments customise or strip
+    fields off res.partner (e.g. a privacy/PII module, a lightweight
+    partner variant) — direct attribute access on a field that isn't
+    registered on the compiled model raises AttributeError and would take
+    down every partner lookup. A field genuinely missing on this instance
+    is reported as null rather than crashing the whole response.
+    """
     def many2one(val):
         return {"id": val.id, "name": val.name} if val else None
 
-    return {
+    result: dict[str, Any] = {
         "id": record.id,
         "name": record.name,
-        "email": record.email or None,
-        "phone": record.phone or None,
-        "mobile": record.mobile or None,
-        "function": record.function or None,
-        "street": record.street or None,
-        "city": record.city or None,
-        "zip": record.zip or None,
-        "state": many2one(record.state_id),
-        "country": many2one(record.country_id),
-        "website": record.website or None,
-        "company": many2one(record.parent_id),
         "is_company": record.is_company,
     }
+    for field in _OPTIONAL_SCALAR_FIELDS:
+        result[field] = getattr(record, field, False) or None
+    result["state"] = many2one(getattr(record, "state_id", False))
+    result["country"] = many2one(getattr(record, "country_id", False))
+    result["company"] = many2one(getattr(record, "parent_id", False))
+    return result
