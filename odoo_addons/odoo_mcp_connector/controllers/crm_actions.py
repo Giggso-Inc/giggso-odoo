@@ -107,6 +107,31 @@ def update_opportunity(user, params: dict[str, Any]) -> dict[str, Any]:
     return {"id": lead.id, "message": "CRM opportunity updated"}
 
 
+def crm_post_message(user, params: dict[str, Any]) -> dict[str, Any]:
+    """Post a chatter message on a CRM lead, visible to followers.
+
+    Distinct from add_note (mail.mt_note, internal-only): this uses
+    mail.mt_comment so it notifies subscribed followers. Use for HITL
+    "Suggested action — approve?" style notifications.
+    """
+    lead_id = int(params.get("lead_id") or 0)
+    body = str(params.get("body") or "").strip()
+    if not lead_id:
+        raise ValueError("lead_id is required")
+    if not body:
+        raise ValueError("body is required")
+
+    lead = request.env["crm.lead"].with_user(user).browse(lead_id).exists()
+    if not lead:
+        raise ValueError("CRM lead not found or not visible")
+
+    message_type = str(params.get("message_type") or "comment")
+    msg_id = lead.message_post(
+        body=body, message_type=message_type, subtype_xmlid="mail.mt_comment"
+    ).id
+    return {"message_id": msg_id}
+
+
 def delete_lead(user, params: dict[str, Any]) -> dict[str, Any]:
     """Delete a CRM lead/opportunity. This action is permanent."""
     lead = request.env["crm.lead"].with_user(user).browse(int(params["lead_id"])).exists()
