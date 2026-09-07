@@ -14,6 +14,7 @@ from . import (
     crm_actions,
     expense_actions,
     hr_actions,
+    partner_activity_actions,
     partner_actions,
     project_actions,
     recruit_actions,
@@ -62,8 +63,8 @@ HANDLERS = {
     ("partner", "create"): partner_actions.create_partner,
     ("partner", "enrich"): partner_actions.enrich_partner,
     ("partner", "find_or_enrich"): partner_actions.find_or_enrich_partner,
-    ("partner", "schedule_activity"): partner_actions.partner_schedule_activity,
-    ("partner", "post_message"): partner_actions.partner_post_message,
+    ("partner", "schedule_activity"): partner_activity_actions.partner_schedule_activity,
+    ("partner", "post_message"): partner_activity_actions.partner_post_message,
     # recruit
     ("recruit", "list_jobs"): recruit_actions.list_jobs,
     ("recruit", "list_applicants"): recruit_actions.list_applicants,

@@ -107,6 +107,16 @@ class TestMarkActivityDone:
         assert result == {"success": True}
         activity.action_feedback.assert_called_once_with(feedback="Handled")
 
+    def test_falls_back_to_unlink_on_type_error(self):
+        activity = MagicMock()
+        activity.__bool__ = MagicMock(return_value=True)
+        activity.action_feedback.side_effect = TypeError("unexpected keyword argument 'feedback'")
+        ctx = _patch_mark_done_request(activity=activity)
+        with ctx:
+            result = mark_activity_done(_make_user(), {"activity_id": 1, "feedback": "Done"})
+        assert result == {"success": True}
+        activity.unlink.assert_called_once()
+
     def test_missing_activity_raises(self):
         ctx = _patch_mark_done_request(activity=None)
         with ctx:

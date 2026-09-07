@@ -65,7 +65,7 @@ _VALID_TASK_STATES = frozenset(
 _BULK_TASK_MAX = 100
 
 
-def _enrich_user_ids(user, records: list[dict]) -> None:
+def _enrich_user_ids(user, records: list[dict[str, Any]]) -> None:
     """Replace bare user_ids integer lists with [{id, name, email}] in place.
 
     Falls back to {id, name} when the caller lacks res.users.email read access.

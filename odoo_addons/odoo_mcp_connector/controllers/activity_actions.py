@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from odoo import fields
 from odoo.http import request
+
+_logger = logging.getLogger(__name__)
 
 
 def schedule_activity(user, params: dict[str, Any]) -> dict[str, Any]:
@@ -74,6 +77,13 @@ def mark_activity_done(user, params: dict[str, Any]) -> dict[str, Any]:
         activity.action_feedback(feedback=feedback)
     except TypeError:
         # Older/newer Odoo signature mismatch — fall back to a direct unlink,
-        # which is what action_feedback does internally after posting the note.
+        # which removes the activity but does NOT post feedback as a chatter
+        # note the way action_feedback would. Log so operators notice the
+        # version drift and know feedback text was dropped for this call.
+        _logger.warning(
+            "mark_activity_done: action_feedback() signature mismatch on activity %s — "
+            "falling back to unlink(); feedback text will not be recorded as a chatter note",
+            activity_id,
+        )
         activity.unlink()
     return {"success": True}

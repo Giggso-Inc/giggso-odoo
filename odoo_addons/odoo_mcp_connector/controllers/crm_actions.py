@@ -7,6 +7,11 @@ from odoo.http import request
 from .utils import compact_records
 
 
+# message_post accepts 'email' and 'user_notification', both of which trigger
+# an irreversible SMTP send — a chatter tool must not expose those.
+_ALLOWED_MESSAGE_TYPES = frozenset({"comment", "notification"})
+
+
 CRM_FIELDS = [
     "id",
     "name",
@@ -126,6 +131,10 @@ def crm_post_message(user, params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("CRM lead not found or not visible")
 
     message_type = str(params.get("message_type") or "comment")
+    if message_type not in _ALLOWED_MESSAGE_TYPES:
+        raise ValueError(
+            f"message_type must be one of: {', '.join(sorted(_ALLOWED_MESSAGE_TYPES))}"
+        )
     msg_id = lead.message_post(
         body=body, message_type=message_type, subtype_xmlid="mail.mt_comment"
     ).id

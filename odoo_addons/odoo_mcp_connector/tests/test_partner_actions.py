@@ -13,18 +13,36 @@ Odoo's ORM is mocked; no live Odoo instance is required.
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 # conftest.py has already loaded the module — grab it from sys.modules.
 partner_actions = sys.modules["odoo_mcp_connector.controllers.partner_actions"]
+partner_utils = sys.modules["odoo_mcp_connector.controllers.partner_utils"]
+partner_activity_actions = sys.modules["odoo_mcp_connector.controllers.partner_activity_actions"]
 find_partner_by_email = partner_actions.find_partner_by_email
 create_partner = partner_actions.create_partner
 enrich_partner = partner_actions.enrich_partner
 find_or_enrich_partner = partner_actions.find_or_enrich_partner
-partner_schedule_activity = partner_actions.partner_schedule_activity
-partner_post_message = partner_actions.partner_post_message
+partner_schedule_activity = partner_activity_actions.partner_schedule_activity
+partner_post_message = partner_activity_actions.partner_post_message
+resolve_state = partner_utils.resolve_state
+resolve_parent_company = partner_utils.resolve_parent_company
+
+
+@contextmanager
+def _patch_request_everywhere(mock_request):
+    """partner_actions/partner_activity_actions delegate to partner_utils for
+    country/state/company resolution and message-type validation — every
+    module holds its own `request` reference, so all three must be patched
+    for a single fake request.env to be visible everywhere.
+    """
+    with patch.object(partner_actions, "request", mock_request), \
+         patch.object(partner_utils, "request", mock_request), \
+         patch.object(partner_activity_actions, "request", mock_request):
+        yield mock_request
 
 
 def _make_user(uid: int = 1) -> MagicMock:
@@ -70,7 +88,7 @@ def _patch_find_request(found=None):
     mock_request.env.__getitem__.side_effect = (
         lambda model: partner_env if model == "res.partner" else MagicMock()
     )
-    ctx = patch.object(partner_actions, "request", mock_request)
+    ctx = _patch_request_everywhere(mock_request)
     return ctx, partner_env
 
 
@@ -130,7 +148,7 @@ def _patch_create_request(created=None, country=None, state=None):
         return MagicMock()
 
     mock_request.env.__getitem__.side_effect = env_getitem
-    ctx = patch.object(partner_actions, "request", mock_request)
+    ctx = _patch_request_everywhere(mock_request)
     return ctx, partner_env
 
 
@@ -183,7 +201,7 @@ def _patch_enrich_request(record=None):
     mock_request.env.__getitem__.side_effect = (
         lambda model: partner_env if model == "res.partner" else MagicMock()
     )
-    ctx = patch.object(partner_actions, "request", mock_request)
+    ctx = _patch_request_everywhere(mock_request)
     return ctx
 
 
@@ -242,7 +260,7 @@ def _patch_find_or_enrich_request(existing=None, created=None):
     mock_request.env.__getitem__.side_effect = (
         lambda model: partner_env if model == "res.partner" else MagicMock()
     )
-    ctx = patch.object(partner_actions, "request", mock_request)
+    ctx = _patch_request_everywhere(mock_request)
     return ctx
 
 
@@ -274,7 +292,10 @@ class TestFindOrEnrichPartner:
 # partner_schedule_activity
 # ---------------------------------------------------------------------------
 
-def _patch_schedule_activity_request(partner=None, activity_type=None, created_activity=None):
+def _patch_schedule_activity_request(
+    partner=None, activity_type=None, created_activity=None,
+    users_read_allowed=True, found_user=None,
+):
     mock_request = MagicMock(name="request")
 
     partner_env = MagicMock()
@@ -297,6 +318,15 @@ def _patch_schedule_activity_request(partner=None, activity_type=None, created_a
     created = created_activity or MagicMock(id=777)
     activity_env.with_user.return_value.create.return_value = created
 
+    users_env = MagicMock()
+    users_env.with_user.return_value.check_access_rights.return_value = users_read_allowed
+    if found_user is not None:
+        users_env.with_user.return_value.search.return_value = found_user
+    else:
+        empty_user = MagicMock()
+        empty_user.__bool__ = MagicMock(return_value=False)
+        users_env.with_user.return_value.search.return_value = empty_user
+
     def env_getitem(model):
         if model == "res.partner":
             return partner_env
@@ -304,11 +334,13 @@ def _patch_schedule_activity_request(partner=None, activity_type=None, created_a
             return type_env
         if model == "mail.activity":
             return activity_env
+        if model == "res.users":
+            return users_env
         return MagicMock()
 
     mock_request.env.__getitem__.side_effect = env_getitem
-    ctx = patch.object(partner_actions, "request", mock_request)
-    return ctx
+    ctx = _patch_request_everywhere(mock_request)
+    return ctx, users_env
 
 
 class TestPartnerScheduleActivity:
@@ -316,7 +348,7 @@ class TestPartnerScheduleActivity:
         partner = _make_partner(pid=50)
         activity_type = MagicMock(id=3)
         activity_type.__bool__ = MagicMock(return_value=True)
-        ctx = _patch_schedule_activity_request(
+        ctx, _ = _patch_schedule_activity_request(
             partner=partner, activity_type=activity_type, created_activity=MagicMock(id=777)
         )
         with ctx:
@@ -324,17 +356,55 @@ class TestPartnerScheduleActivity:
         assert result == {"activity_id": 777}
 
     def test_invalid_partner_raises(self):
-        ctx = _patch_schedule_activity_request(partner=None)
+        ctx, _ = _patch_schedule_activity_request(partner=None)
         with ctx:
             with pytest.raises(ValueError, match="not found or access denied"):
                 partner_schedule_activity(_make_user(), {"partner_id": 999})
 
     def test_invalid_activity_type_raises(self):
         partner = _make_partner(pid=51)
-        ctx = _patch_schedule_activity_request(partner=partner, activity_type=None)
+        ctx, _ = _patch_schedule_activity_request(partner=partner, activity_type=None)
         with ctx:
             with pytest.raises(ValueError, match="Activity type not found"):
                 partner_schedule_activity(_make_user(), {"partner_id": 51, "activity_type": "Bogus"})
+
+    def test_user_login_resolved_when_access_allowed(self):
+        partner = _make_partner(pid=52)
+        activity_type = MagicMock(id=3)
+        activity_type.__bool__ = MagicMock(return_value=True)
+        found_user = MagicMock(id=88)
+        found_user.__bool__ = MagicMock(return_value=True)
+        ctx, users_env = _patch_schedule_activity_request(
+            partner=partner, activity_type=activity_type,
+            created_activity=MagicMock(id=778),
+            users_read_allowed=True, found_user=found_user,
+        )
+        with ctx:
+            partner_schedule_activity(_make_user(), {"partner_id": 52, "user_login": "bob@co.com"})
+        # Never uses sudo() — must go through with_user(caller) + an explicit
+        # access-rights check, so a caller without res.users read access
+        # cannot probe whether an arbitrary login exists.
+        users_env.sudo.assert_not_called()
+        users_env.with_user.return_value.check_access_rights.assert_called_once_with(
+            "read", raise_exception=False
+        )
+        users_env.with_user.return_value.search.assert_called_once()
+
+    def test_user_login_ignored_when_access_denied(self):
+        partner = _make_partner(pid=53)
+        activity_type = MagicMock(id=3)
+        activity_type.__bool__ = MagicMock(return_value=True)
+        ctx, users_env = _patch_schedule_activity_request(
+            partner=partner, activity_type=activity_type,
+            created_activity=MagicMock(id=779),
+            users_read_allowed=False,
+        )
+        with ctx:
+            partner_schedule_activity(_make_user(), {"partner_id": 53, "user_login": "ghost@co.com"})
+        # Access check failed -> search must never run, so no login existence
+        # can be inferred from the call's side effects.
+        users_env.with_user.return_value.search.assert_not_called()
+        users_env.sudo.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +423,7 @@ def _patch_post_message_request(partner=None):
     mock_request.env.__getitem__.side_effect = (
         lambda model: partner_env if model == "res.partner" else MagicMock()
     )
-    ctx = patch.object(partner_actions, "request", mock_request)
+    ctx = _patch_request_everywhere(mock_request)
     return ctx
 
 
@@ -378,3 +448,80 @@ class TestPartnerPostMessage:
         with ctx:
             with pytest.raises(ValueError, match="not found or access denied"):
                 partner_post_message(_make_user(), {"partner_id": 999, "body": "Hi"})
+
+    def test_message_type_email_rejected(self):
+        # 'email' triggers an actual outbound SMTP send in Odoo — must never
+        # be reachable through this chatter tool.
+        partner = _make_partner(pid=62)
+        ctx = _patch_post_message_request(partner=partner)
+        with ctx:
+            with pytest.raises(ValueError, match="message_type must be one of"):
+                partner_post_message(
+                    _make_user(), {"partner_id": 62, "body": "Hi", "message_type": "email"}
+                )
+
+    def test_message_type_notification_allowed(self):
+        partner = _make_partner(pid=63)
+        partner.message_post.return_value.id = 901
+        ctx = _patch_post_message_request(partner=partner)
+        with ctx:
+            result = partner_post_message(
+                _make_user(), {"partner_id": 63, "body": "Hi", "message_type": "notification"}
+            )
+        assert result == {"message_id": 901}
+
+
+# ---------------------------------------------------------------------------
+# partner_utils.resolve_state / resolve_parent_company — correctness fixes
+# ---------------------------------------------------------------------------
+
+class TestResolveStateCountryScoping:
+    def test_no_country_id_omits_country_filter(self):
+        mock_request = MagicMock(name="request")
+        state_env = MagicMock()
+        found = MagicMock(id=5)
+        found.__bool__ = MagicMock(return_value=True)
+        state_env.with_user.return_value.search.return_value = found
+        mock_request.env.__getitem__.side_effect = (
+            lambda model: state_env if model == "res.country.state" else MagicMock()
+        )
+        with patch.object(partner_utils, "request", mock_request):
+            result = resolve_state(_make_user(), "Victoria")
+        domain = state_env.with_user.return_value.search.call_args[0][0]
+        assert result == 5
+        assert not any(leaf[0] == "country_id" for leaf in domain if isinstance(leaf, tuple))
+
+    def test_country_id_adds_scoping_filter(self):
+        mock_request = MagicMock(name="request")
+        state_env = MagicMock()
+        found = MagicMock(id=9)
+        found.__bool__ = MagicMock(return_value=True)
+        state_env.with_user.return_value.search.return_value = found
+        mock_request.env.__getitem__.side_effect = (
+            lambda model: state_env if model == "res.country.state" else MagicMock()
+        )
+        with patch.object(partner_utils, "request", mock_request):
+            result = resolve_state(_make_user(), "Victoria", country_id=13)
+        domain = state_env.with_user.return_value.search.call_args[0][0]
+        assert result == 9
+        assert ("country_id", "=", 13) in domain
+
+
+class TestResolveParentCompanyExactMatch:
+    def test_uses_exact_equals_not_ilike(self):
+        mock_request = MagicMock(name="request")
+        partner_env = MagicMock()
+        empty = MagicMock()
+        empty.__bool__ = MagicMock(return_value=False)
+        partner_env.with_user.return_value.search.return_value = empty
+        created = MagicMock(id=70)
+        partner_env.with_user.return_value.create.return_value = created
+        mock_request.env.__getitem__.side_effect = (
+            lambda model: partner_env if model == "res.partner" else MagicMock()
+        )
+        with patch.object(partner_utils, "request", mock_request):
+            result = resolve_parent_company(_make_user(), "Acme Corp")
+        domain = partner_env.with_user.return_value.search.call_args[0][0]
+        assert ("name", "=", "Acme Corp") in domain
+        assert ("name", "=ilike", "Acme Corp") not in domain
+        assert result == 70

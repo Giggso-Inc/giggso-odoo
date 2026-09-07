@@ -88,4 +88,9 @@ _load("odoo_mcp_connector.controllers.utils", CONTROLLERS_DIR / "utils.py")
 _load("odoo_mcp_connector.controllers.project_actions", CONTROLLERS_DIR / "project_actions.py")
 _load("odoo_mcp_connector.controllers.crm_actions", CONTROLLERS_DIR / "crm_actions.py")
 _load("odoo_mcp_connector.controllers.activity_actions", CONTROLLERS_DIR / "activity_actions.py")
+_load("odoo_mcp_connector.controllers.partner_utils", CONTROLLERS_DIR / "partner_utils.py")
 _load("odoo_mcp_connector.controllers.partner_actions", CONTROLLERS_DIR / "partner_actions.py")
+_load(
+    "odoo_mcp_connector.controllers.partner_activity_actions",
+    CONTROLLERS_DIR / "partner_activity_actions.py",
+)

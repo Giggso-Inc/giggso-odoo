@@ -842,3 +842,40 @@ class TestGetTasksBulk:
         with ctx:
             result = get_tasks_bulk(_make_user(), {"task_ids": [1, 2]})
         assert result == {"tasks": [], "count": 0}
+
+    def test_tag_enrichment_uses_sudo_and_populates_names(self):
+        mock_request = MagicMock(name="request")
+        rows = [{"id": 1, "name": "Task A", "tag_ids": [10, 11]}]
+
+        task_env = MagicMock()
+        task_env.with_user.return_value.browse.return_value.exists.return_value.read.return_value = rows
+        users_env = MagicMock()
+        users_env.with_user.return_value.browse.return_value.read.return_value = []
+        tags_env = MagicMock()
+        tags_env.sudo.return_value.browse.return_value.read.return_value = [
+            {"id": 10, "name": "Urgent"},
+            {"id": 11, "name": "Billing"},
+        ]
+
+        def env_getitem(model):
+            if model == "project.task":
+                return task_env
+            if model == "res.users":
+                return users_env
+            if model == "project.tags":
+                return tags_env
+            return MagicMock()
+
+        mock_request.env.__getitem__.side_effect = env_getitem
+        with patch.object(project_actions, "request", mock_request):
+            result = get_tasks_bulk(_make_user(), {"task_ids": [1]})
+
+        assert result["tasks"][0]["tag_ids"] == [
+            {"id": 10, "name": "Urgent"},
+            {"id": 11, "name": "Billing"},
+        ]
+        # Tag names are looked up via sudo() (matches the existing get_task
+        # pattern) — guard against this accidentally being downgraded to
+        # with_user(), which could raise AccessError for non-manager callers.
+        tags_env.sudo.assert_called()
+        tags_env.with_user.assert_not_called()
