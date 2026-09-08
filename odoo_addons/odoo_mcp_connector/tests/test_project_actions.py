@@ -216,12 +216,26 @@ class TestCreateTask:
 # list_tasks filter tests
 # ---------------------------------------------------------------------------
 
-def _patch_list_request(records=None):
+# Mirrors the live selection observed in production: numeric-prefixed codes
+# that don't match the friendly words the tools accept as input.
+_STATE_SELECTION = [
+    ("01_in_progress", "In Progress"),
+    ("02_changes_requested", "Changes Requested"),
+    ("03_approved", "Approved"),
+    ("1_done", "Done"),
+    ("1_canceled", "Cancelled"),
+]
+
+
+def _patch_list_request(records=None, state_selection=None):
     """Patch request.env for list_tasks. Returns (ctx, mock_request, captured_domain)."""
     mock_request = MagicMock(name="request")
     captured = {}
 
     task_env = MagicMock()
+    task_env.with_user.return_value.fields_get.return_value = {
+        "state": {"selection": state_selection or _STATE_SELECTION}
+    }
 
     def fake_search_read(domain, fields, limit=30, order="write_date desc"):
         captured["domain"] = list(domain)
@@ -279,8 +293,27 @@ class TestListTasksFilters:
         assert ("create_date", "<=", "2026-07-30") in domain
 
     def test_filter_by_state(self):
+        # 'in_progress' must translate to the real Odoo code '01_in_progress' —
+        # a raw equality on the friendly word would silently match zero rows.
         domain = self._run({"state": "in_progress"})
-        assert ("state", "=", "in_progress") in domain
+        assert ("state", "=", "01_in_progress") in domain
+        assert ("state", "=", "in_progress") not in domain
+
+    def test_filter_by_state_done_translates_to_prefixed_code(self):
+        # Regression: 'done' is the exact value that broke in production —
+        # Odoo only ever stores '1_done', never the bare word.
+        domain = self._run({"state": "done"})
+        assert ("state", "=", "1_done") in domain
+
+    def test_filter_by_state_accepts_british_spelling_alias(self):
+        domain = self._run({"state": "cancelled"})
+        assert ("state", "=", "1_canceled") in domain
+
+    def test_filter_by_invalid_state_raises(self):
+        ctx, _, _ = _patch_list_request()
+        with ctx:
+            with pytest.raises(ValueError, match="Invalid state"):
+                list_tasks(_make_user(), {"state": "bogus"})
 
     def test_multiple_filters_combined(self):
         domain = self._run({
@@ -738,13 +771,16 @@ class TestListTasksEnrichment:
 # set_task_state tests
 # ---------------------------------------------------------------------------
 
-def _patch_state_request(task_exists=True):
+def _patch_state_request(task_exists=True, state_selection=None):
     mock_request = MagicMock(name="request")
     task_mock = MagicMock()
     task_mock.__bool__ = MagicMock(return_value=task_exists)
     task_mock.id = 42
 
     task_env = MagicMock()
+    task_env.with_user.return_value.fields_get.return_value = {
+        "state": {"selection": state_selection or _STATE_SELECTION}
+    }
     task_env.with_user.return_value.browse.return_value.exists.return_value = (
         task_mock if task_exists else MagicMock(__bool__=MagicMock(return_value=False))
     )
@@ -756,12 +792,31 @@ def _patch_state_request(task_exists=True):
 
 
 class TestSetTaskState:
-    def test_valid_state_writes_field(self):
+    def test_valid_state_writes_translated_code(self):
         ctx, task_mock = _patch_state_request()
         with ctx:
             result = set_task_state(_make_user(), {"task_id": 42, "state": "approved"})
+        # Response still echoes the friendly word the caller sent...
         assert result["state"] == "approved"
-        task_mock.write.assert_called_once_with({"state": "approved"})
+        # ...but Odoo is written to with the actual internal code.
+        task_mock.write.assert_called_once_with({"state": "03_approved"})
+
+    def test_done_writes_prefixed_code_not_bare_word(self):
+        # Regression for the exact reported bug: 'done' was written to Odoo
+        # as the literal string 'done', which Odoo's selection field rejects
+        # ("Wrong value for project.task.state: 'done'") since it only ever
+        # stores '1_done'.
+        ctx, task_mock = _patch_state_request()
+        with ctx:
+            result = set_task_state(_make_user(), {"task_id": 42, "state": "done"})
+        assert result["state"] == "done"
+        task_mock.write.assert_called_once_with({"state": "1_done"})
+
+    def test_british_spelling_alias_resolves_to_actual_code(self):
+        ctx, task_mock = _patch_state_request()
+        with ctx:
+            set_task_state(_make_user(), {"task_id": 42, "state": "cancelled"})
+        task_mock.write.assert_called_once_with({"state": "1_canceled"})
 
     def test_invalid_state_raises(self):
         ctx, _ = _patch_state_request()
@@ -780,6 +835,12 @@ class TestSetTaskState:
         with ctx:
             with pytest.raises(ValueError, match="task_id is required"):
                 set_task_state(_make_user(), {"state": "done"})
+
+    def test_missing_state_raises(self):
+        ctx, _ = _patch_state_request()
+        with ctx:
+            with pytest.raises(ValueError, match="state is required"):
+                set_task_state(_make_user(), {"task_id": 42})
 
 
 # ---------------------------------------------------------------------------
