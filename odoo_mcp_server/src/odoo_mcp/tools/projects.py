@@ -360,6 +360,8 @@ def register_project_tools(mcp: FastMCP, services: AppServices) -> None:
         """Set the personal state (status pill) of a project task.
 
         state must be one of: in_progress | changes_requested | approved | cancelled | done
+        (the connector translates this to Odoo's actual internal code, e.g.
+        'done' -> '1_done', before writing — pass the friendly word here.)
 
         NOTE: this is NOT the Kanban board column. Use project_move_task_stage
         to change which column the task sits in; use this to change the

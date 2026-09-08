@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from odoo.exceptions import AccessError
@@ -9,6 +10,12 @@ from odoo.http import request
 from .utils import compact_records
 
 _logger = logging.getLogger(__name__)
+
+_STATE_PREFIX_RE = re.compile(r"^\d+_")
+# Accept both spellings as client input — Odoo's actual internal code has
+# been observed to use either 'canceled' or 'cancelled' depending on the
+# instance (see set_task_state's docstring for why this can't be a static map).
+_STATE_SPELLING_ALIASES = {"cancelled": "canceled"}
 
 
 def _resolve_tag_ids(user, tag_names: list[str]) -> list[int]:
@@ -59,10 +66,43 @@ TASK_FIELDS = [
     "create_date",
     "write_date",
 ]
-_VALID_TASK_STATES = frozenset(
-    {"in_progress", "changes_requested", "approved", "cancelled", "done"}
-)
 _BULK_TASK_MAX = 100
+
+
+def _normalize_state_key(code: str) -> str:
+    """Strip Odoo's numeric Kanban-ordering prefix and lowercase.
+
+    project.task.state codes look like '01_in_progress', '02_changes_requested',
+    '1_done' — the numeric prefix controls Kanban sort order, not meaning.
+    Stripping it gives a friendly key: 'in_progress', 'done'.
+    """
+    return _STATE_PREFIX_RE.sub("", code).lower()
+
+
+def _state_code_map(user) -> dict[str, str]:
+    """Build {friendly_name: actual_odoo_code} from the live selection field.
+
+    Queried dynamically rather than hardcoded: the exact codes (and even
+    the spelling of 'cancelled'/'canceled') vary by Odoo instance. A prior
+    version of this connector hardcoded the friendly words themselves as
+    the write value ('done'), which Odoo's selection field rejected outright
+    since it only ever stores the prefixed code ('1_done') — no value
+    satisfied both the connector's own input validator and Odoo's backend.
+    Reading the live selection avoids re-introducing that mismatch.
+    """
+    selection = request.env["project.task"].with_user(user).fields_get(["state"])["state"]["selection"]
+    return {_normalize_state_key(code): code for code, _label in selection}
+
+
+def _resolve_state_code(user, friendly_state: str) -> str:
+    """Translate a client-facing state name to Odoo's actual internal code."""
+    key = _STATE_SPELLING_ALIASES.get(friendly_state.lower(), friendly_state.lower())
+    code_map = _state_code_map(user)
+    if key not in code_map:
+        raise ValueError(
+            f"Invalid state '{friendly_state}'. Must be one of: {', '.join(sorted(code_map))}"
+        )
+    return code_map[key]
 
 
 def _enrich_user_ids(user, records: list[dict[str, Any]]) -> None:
@@ -148,9 +188,12 @@ def list_tasks(user, params: dict[str, Any]) -> dict[str, Any]:
     if params.get("created_before"):
         domain.append(("create_date", "<=", str(params["created_before"])))
 
-    # Personal task state (Odoo 17+ enum).
+    # Personal task state (Odoo 17+ enum) — translate the friendly client
+    # word to Odoo's actual internal code (e.g. 'done' -> '1_done'); a raw
+    # equality on the friendly word never matches and silently returns zero
+    # rows, since Odoo never stores the bare word as the field value.
     if params.get("state"):
-        domain.append(("state", "=", str(params["state"])))
+        domain.append(("state", "=", _resolve_state_code(user, str(params["state"]))))
 
     lim = int(params.get("limit", 30))
     records = request.env["project.task"].with_user(user).search_read(
@@ -565,14 +608,13 @@ def set_task_state(user, params: dict[str, Any]) -> dict[str, Any]:
     state = str(params.get("state") or "").strip()
     if not task_id:
         raise ValueError("task_id is required")
-    if state not in _VALID_TASK_STATES:
-        raise ValueError(
-            f"Invalid state '{state}'. Must be one of: {', '.join(sorted(_VALID_TASK_STATES))}"
-        )
+    if not state:
+        raise ValueError("state is required")
+    odoo_code = _resolve_state_code(user, state)
     task = request.env["project.task"].with_user(user).browse(task_id).exists()
     if not task:
         raise ValueError("Project task not found or not visible")
-    task.write({"state": state})
+    task.write({"state": odoo_code})
     return {"id": task.id, "state": state, "message": f"Task personal state set to '{state}'"}
 
 
