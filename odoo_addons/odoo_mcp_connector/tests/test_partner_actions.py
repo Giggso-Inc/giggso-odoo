@@ -30,6 +30,7 @@ partner_schedule_activity = partner_activity_actions.partner_schedule_activity
 partner_post_message = partner_activity_actions.partner_post_message
 resolve_state = partner_utils.resolve_state
 resolve_parent_company = partner_utils.resolve_parent_company
+format_partner = partner_utils.format_partner
 
 
 @contextmanager
@@ -505,6 +506,46 @@ class TestResolveStateCountryScoping:
         domain = state_env.with_user.return_value.search.call_args[0][0]
         assert result == 9
         assert ("country_id", "=", 13) in domain
+
+
+class TestFormatPartnerFieldResilience:
+    """Regression coverage for a live production error: some Odoo deployments
+    customise/strip fields off res.partner (e.g. a privacy module, a
+    lightweight partner variant). Direct attribute access on a genuinely
+    unregistered field raises AttributeError and previously crashed the
+    whole partner lookup — 'res.partner' object has no attribute 'mobile'.
+    """
+
+    def test_missing_optional_field_returns_none_instead_of_crashing(self):
+        class _PartialPartner:
+            """No `mobile` attribute at all — simulates a stripped res.partner
+            model where accessing it would raise AttributeError, not just
+            return a falsy value like a normal blank Odoo field would.
+            """
+            id = 42
+            name = "Bob"
+            email = "bob@example.com"
+            phone = "555-0100"
+            function = "Manager"
+            street = None
+            city = None
+            zip = None
+            website = None
+            state_id = False
+            country_id = False
+            parent_id = False
+            is_company = False
+
+        result = format_partner(_PartialPartner())
+        assert result["mobile"] is None
+        assert result["id"] == 42
+        assert result["email"] == "bob@example.com"
+
+    def test_all_fields_present_still_populate_normally(self):
+        partner = _make_partner(pid=15, mobile="555-1234", function="CTO")
+        result = format_partner(partner)
+        assert result["mobile"] == "555-1234"
+        assert result["function"] == "CTO"
 
 
 class TestResolveParentCompanyExactMatch:
